@@ -1,0 +1,46 @@
+###
+### APP HTTP-Config generated with capistrano at: <%= Time.now.strftime("%Y-%m-%d .. %H:%M .. %Z") %>
+### Application: <%= fetch(:application) %>, Stage: <%= fetch(:stage) %>
+### Site Name: <%= fetch(:nginx_app_site_name) %>
+### Listening on Port: <%= fetch(:nginx_upstream_port) %>
+###
+
+server {
+  listen <%= fetch(:nginx_upstream_port) %>;
+  listen [::]:<%= fetch(:nginx_upstream_port) %>;
+
+  # Lausche auf jede Domain oder interne IP, da der Proxy davor sitzt
+  server_name _; # Oder localhost, oder die interne IP des App-Servers
+
+  gzip                on;
+  gzip_proxied        any; # Wichtig, wenn hinter einem Proxy
+  gzip_types          text/plain application/xml text/css application/javascript application/json;
+  gzip_min_length     1000;
+  gzip_comp_level     6; # Guter Kompromiss
+
+  # Logging für die App
+  # Pfade sind relativ zu shared_path, wie in deinen linked_dirs definiert
+  access_log <%= shared_path %>/<%= fetch(:nginx_log_folder) %>/nginx-access.log;
+  error_log  <%= shared_path %>/<%= fetch(:nginx_log_folder) %>/nginx-error.log;
+
+
+  # .well-known Anfragen könnten auch hier landen, wenn der Proxy sie durchlässt
+  # Falls bestimmte .well-known Pfade von der App selbst bedient werden sollen 
+  <% if fetch(:allow_well_known_app) %>
+    location ~ /.well-known {
+      allow all;
+      root <%= shared_path %>;
+    }
+  <% end %>
+
+  # Static Files
+  root                  <%= fetch(:nginx_root_folder) %>;
+
+  
+
+  # SPA-routing
+  location / {
+    try_files $uri $uri/ /<%= fetch(:nginx_app_fallback_site, "404.html") %>;
+  }
+
+}

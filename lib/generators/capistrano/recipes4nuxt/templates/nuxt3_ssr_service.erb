@@ -1,0 +1,38 @@
+[Unit]
+Description=Nuxt 3 Nitro SSR Server for <%= fetch(:application) %>_<%= fetch(:stage) %>
+After=network.target
+
+[Service]
+Type=simple
+User=<%= fetch(:nuxt3_ssr_user) %>
+Group=<%= fetch(:nuxt3_ssr_user) %>
+
+WorkingDirectory=<%= shared_path %>/<%= fetch(:nuxt3_output_folder) %>
+
+# Nitro listens on host:port; the nginx proxy passes through to it.
+Environment=NODE_ENV=production
+Environment=NITRO_HOST=<%= fetch(:nuxt3_ssr_host) %>
+Environment=NITRO_PORT=<%= fetch(:nuxt3_ssr_port) %>
+Environment=HOST=<%= fetch(:nuxt3_ssr_host) %>
+Environment=PORT=<%= fetch(:nuxt3_ssr_port) %>
+<%= fetch(:nuxt3_ssr_env, {}).map { |k, v| "Environment=#{k}=#{v}" }.join("\n") %>
+
+# nvm-activated node, same bash -lc pattern as the build tasks.
+ExecStart=/bin/bash -lc '<%= nuxt3_nvm_prefix %> && exec node <%= shared_path %>/<%= fetch(:nuxt3_output_folder) %>/server/index.mjs'
+
+# PID-File explicit for Monit/supervision (mirrors puma_service)
+PIDFile=<%= fetch(:nuxt3_pid_path) %>/<%= fetch(:nuxt3_ssr_service_file) %>.pid
+ExecStartPost=/bin/bash -c 'echo $MAINPID > <%= fetch(:nuxt3_pid_path) %>/<%= fetch(:nuxt3_ssr_service_file) %>.pid'
+ExecStopPost=/bin/bash -c 'rm -f <%= fetch(:nuxt3_pid_path) %>/<%= fetch(:nuxt3_ssr_service_file) %>.pid'
+
+Restart=always
+RestartSec=5
+StartLimitBurst=3
+StartLimitInterval=30
+
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=nuxt3_ssr_<%= fetch(:application) %>_<%= fetch(:stage) %>
+
+[Install]
+WantedBy=multi-user.target

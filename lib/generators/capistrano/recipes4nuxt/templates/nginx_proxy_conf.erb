@@ -1,0 +1,137 @@
+###
+### PROXY HTTP-Config generated with capistrano at: <%= Time.now.strftime("%Y-%m-%d .. %H:%M .. %Z") %>
+### Application: <%= fetch(:application) %>, Stage: <%= fetch(:stage) %>
+### Site Name: <%= fetch(:nginx_proxy_site_name) %>
+### Upstream App: <%= fetch(:nginx_upstream_host) %>:<%= fetch(:nginx_upstream_port) %>
+###
+
+
+# Upstream for the Internal App Nginx Server
+# This is where your App Nginx (e.g., in a Docker container or on a separate VM) listens.
+upstream app_<%= fetch(:application) %>_<%= fetch(:stage) %>_app_server {
+  server <%= fetch(:nginx_upstream_host) %>:<%= fetch(:nginx_upstream_port) %>;
+  # If you have multiple app servers, you'd list them here:
+  # server 10.0.0.6:4550;
+  # server 10.0.0.7:4550;
+}
+
+
+<% if fetch(:nginx_use_ssl) %>
+# Redirect HTTP to HTTPS
+server {
+  listen 80;
+  listen [::]:80;
+
+  server_name <%= nginx_all_domains_with_www.join(joiner) %>;
+
+  <% if fetch(:allow_well_known_proxy) %>
+  # For Certbot ACME Challenge
+  location ~ /.well-known {
+    allow all;
+    root <%= fetch(:nginx_proxy_well_known_root) %>; # Pfad für Certbot auf dem Proxy
+  }
+  <% end %>
+
+  location / {
+    <% if fetch(:nginx_major_domain) %>
+    return 301 https://<%= nginx_major_domain %>$request_uri;
+    <% else %>
+    return 301 https://$host$request_uri;
+    <% end %>
+  }
+}
+<% end %>
+
+
+<% if fetch(:nginx_major_domain) && !nginx_domains.empty? %>
+<% if fetch(:nginx_use_ssl) %>
+# Redirect old domains to major (HTTPS)
+server {
+  listen 443 ssl http2;
+  listen [::]:443 ssl http2;
+
+  ssl_certificate       <%= fetch(:nginx_other_ssl_cert) %>;
+  ssl_certificate_key   <%= fetch(:nginx_other_ssl_key) %>;
+
+  <%= render2go("nginx/https_ssl_options") %> # Dein SSL Options Partial
+
+  server_name           <%= nginx_domains.join(joiner) %>;
+  return 301 https://<%= nginx_major_domain %>$request_uri;
+}
+<% else %>
+# Redirect old domains to major (HTTP)
+server {
+  listen 80;
+  listen [::]:80;
+
+  server_name           <%= nginx_domains.join(joiner) %>;
+  return 301 http://<%= nginx_major_domain %>$request_uri;
+}
+<% end %>
+<% end %>
+
+
+<% if fetch(:nginx_use_ssl) %>
+# Main SSL Server Block for Proxy
+server {
+  listen 443 ssl http2;
+  listen [::]:443 ssl http2;
+
+  ssl_certificate     <%= fetch(:nginx_ssl_cert) %>;
+  ssl_certificate_key <%= fetch(:nginx_ssl_key) %>;
+
+  <%= render2go("nginx/https_ssl_options") %> # Dein SSL Options Partial
+<% else %>
+# Main HTTP Server Block for Proxy
+server {
+  listen 80;
+  listen [::]:80;
+<% end %>
+
+  <% if fetch(:nginx_remove_www) %>
+  ## Remove "www" from URLs
+  if ($host ~* ^www\.(?<domain>.*)) {
+    return 301 <%= fetch(:nginx_use_ssl) ? "https" : "http" %>://$domain$request_uri;
+  }
+  <% end %>
+
+  <% if fetch(:nginx_major_domain) %>
+  server_name <%= fetch(:nginx_major_domain).gsub(/^\*?\./, "") %>;
+  <% else %>
+  server_name <%= nginx_domains_with_www.join(joiner) %>;
+  <% end %>
+
+  # Logging für den Proxy
+  access_log <%= fetch(:nginx_proxy_log_folder) %>/<%= fetch(:nginx_proxy_site_name) %>-access.log;
+  error_log  <%= fetch(:nginx_proxy_log_folder) %>/<%= fetch(:nginx_proxy_site_name) %>-error.log;
+
+  <%# For Certbot ACME Challenge (falls direkt auf Port 443/80 ohne vorherigen Redirect) %>
+  <% if fetch(:allow_well_known_proxy) %>
+  location ~ /.well-known {
+    allow all;
+    root <%= fetch(:nginx_proxy_well_known_root) %>; # Pfad für Certbot auf dem Proxy
+  }
+  <% end %>
+
+
+
+  # Proxying to the App Server
+  location / {
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_connect_timeout 75;
+    proxy_send_timeout 3650;
+    proxy_read_timeout 3650;
+    proxy_buffers 64 512k;
+    client_body_buffer_size 512k;
+    client_max_body_size 0;
+    
+    # proxy_redirect    off;
+    # FIX: Ersetze in Location-Header :<%= fetch(:nginx_upstream_port) %> egal auf welchem Host
+    proxy_redirect ~^(.+):<%= fetch(:nginx_upstream_port) %>/(.*) $1/$2;
+    
+    proxy_pass        http://app_<%= fetch(:application) %>_<%= fetch(:stage) %>_app_server;
+  }
+}

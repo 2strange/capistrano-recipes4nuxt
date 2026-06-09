@@ -1,0 +1,176 @@
+###
+### HTTP-Config generated with capistrano-recipes4nuxt at: <%= Time.now.strftime("%Y-%m-%d .. %H:%M .. %Z") %>
+###
+
+
+<% if fetch(:nginx_use_ssl) && !fetch(:nginx_also_allow_http, false) %>
+# Redirect HTTP to HTTPS
+server {
+  listen 80;
+  listen [::]:80;
+
+  server_name <%= nginx_all_domains_with_www.join(joiner) %>;
+  <% if fetch(:nginx_major_domain) %>
+  return 301 https://<%= nginx_major_domain %>$request_uri;
+  <% else %>
+  return 301 https://$host$request_uri;
+  <% end %>
+}
+<% end %>
+
+
+<% if fetch(:nginx_major_domain) %>
+<% if fetch(:nginx_use_ssl) %>
+
+<% if fetch(:nginx_also_allow_http, false) %>
+# Redirect HTTP to HTTPS
+server {
+  listen 80;
+  listen [::]:80;
+
+  server_name <%= nginx_all_domains_with_www.join(joiner) %>;
+  return 301 https://<%= nginx_major_domain %>$request_uri;
+}
+<% end %>
+
+# Redirect old domains to major (HTTPS)
+server {
+  listen 443 ssl http2;
+  listen [::]:443 ssl http2;
+
+  ssl_certificate       <%= fetch(:nginx_other_ssl_cert) %>;
+  ssl_certificate_key   <%= fetch(:nginx_other_ssl_key) %>;
+
+  <%= render2go("nginx/https_ssl_options") %>
+
+  server_name           <%= nginx_domains.join(joiner) %>;
+  return 301 https://<%= nginx_major_domain %>$request_uri;
+}
+<% else %>
+# Redirect old domains to major (HTTP)
+server {
+  listen 80;
+  listen [::]:80;
+
+  server_name           <%= nginx_domains.join(joiner) %>;
+  return 301 http://<%= nginx_major_domain %>$request_uri;
+}
+<% end %>
+<% end %>
+
+
+
+
+<% if fetch(:nginx_also_allow_http, false) && fetch(:nginx_use_ssl, false) %>
+# Main HTTP Server Block
+server {
+  listen 80;
+  listen [::]:80;
+  
+
+  <% if fetch(:nginx_remove_www) %>
+  ## Remove "www" from URLs
+  if ($host ~* ^www\.(?<domain>.*)) {
+    return 301 <%= fetch(:nginx_use_ssl) ? "https" : "http" %>://$domain$request_uri;
+  }
+  <% end %>
+
+  <% if fetch(:nginx_major_domain) %>
+  server_name <%= fetch(:nginx_major_domain).gsub(/^\*?\./, "") %>;
+  <% else %>
+  server_name <%= nginx_domains_with_www.join(joiner) %>;
+  <% end %>
+
+
+  gzip                on;
+  gzip_types          text/plain application/xml text/css application/javascript;
+  gzip_min_length     1000;
+
+
+<% if fetch(:allow_well_known) %>
+  location ~ /.well-known {
+    allow all;
+    root <%= shared_path %>;
+  }
+<% end %>
+
+  # Logging
+  access_log <%= shared_path %>/<%= fetch(:nginx_log_folder) %>/nginx-access.log;
+  error_log  <%= shared_path %>/<%= fetch(:nginx_log_folder) %>/nginx-error.log;
+
+  # Static Files
+  root                  <%= shared_path %>/<%= fetch(:nginx_root_folder) %>;
+
+  # SPA-routing
+  location / {
+    try_files $uri $uri/ /<%= fetch(:nginx_app_fallback_site, "404.html") %>;
+  }
+}
+<% end %>
+
+
+
+
+<% if fetch(:nginx_use_ssl) %>
+# Main SSL Server Block
+server {
+  listen 443 ssl http2;
+  listen [::]:443 ssl http2;
+
+  ssl_certificate     <%= fetch(:nginx_ssl_cert) %>;
+  ssl_certificate_key <%= fetch(:nginx_ssl_key) %>;
+
+  <%= render2go("nginx/https_ssl_options") %>
+<% else %>
+# Main HTTP Server Block
+server {
+  listen 80;
+  listen [::]:80;
+<% end %>
+
+  <% if fetch(:nginx_remove_www) %>
+  ## Remove "www" from URLs
+  if ($host ~* ^www\.(?<domain>.*)) {
+    return 301 <%= fetch(:nginx_use_ssl) ? "https" : "http" %>://$domain$request_uri;
+  }
+  <% end %>
+
+  <% if fetch(:nginx_major_domain) %>
+  server_name <%= fetch(:nginx_major_domain).gsub(/^\*?\./, "") %>;
+  <% else %>
+  server_name <%= nginx_domains_with_www.join(joiner) %>;
+  <% end %>
+
+
+  gzip                on;
+  gzip_types          text/plain application/xml text/css application/javascript;
+  gzip_min_length     1000;
+
+
+
+<% if fetch(:allow_well_known) %>
+  location ~ /.well-known {
+    allow all;
+    root <%= shared_path %>;
+  }
+<% end %>
+
+  # Logging
+  access_log <%= shared_path %>/<%= fetch(:nginx_log_folder) %>/nginx-access.log;
+  error_log  <%= shared_path %>/<%= fetch(:nginx_log_folder) %>/nginx-error.log;
+
+
+  # Static Files
+
+  # root folder:  dist | www
+  root                  <%= shared_path %>/<%= fetch(:nginx_root_folder) %>;
+
+  # index
+  # index index.html;
+
+  # SPA-routing
+  location / {
+    try_files $uri $uri/ /<%= fetch(:nginx_app_fallback_site, "404.html") %>;
+  }
+
+}
