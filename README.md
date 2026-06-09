@@ -222,7 +222,7 @@ restart the service cleanly.
 
 ## CHANGELOG
 
-### 1.0.0
+### 0.5.0 — Erstrelease (forked von capistrano-nuxt2 0.2.18; SSR noch WIP → 1.0 sobald vollständig)
 - Forked from `capistrano-nuxt2` v0.2.18
 - Renamed gem to `capistrano-recipes4nuxt` (version-agnostic, matches `recipes2go` naming)
 - Ruby module namespace changed: `Capistrano::Nuxt2` -> `Capistrano::Recipes4nuxt`
