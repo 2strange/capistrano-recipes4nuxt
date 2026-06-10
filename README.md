@@ -1,10 +1,22 @@
+# ⚠️ WIP — NICHT VERWENDEN (Stand 2026-06-10)
+
+**Dieses Gem ist Work-in-Progress und für KEIN Projekt freigegeben** — weder neue noch
+bestehende. Es wurde noch **nie durch einen echten Deploy verifiziert**, und der
+1.0-Kontrakt (inkl. bekannter Gaps, siehe `docs/DEPLOY_CONTRACT.md` auf dem
+Design-Branch) ist nicht umgesetzt.
+
+**Standard für alle Nuxt-Deploys bleibt [capistrano-nuxt2](https://github.com/2strange/capistrano-nuxt2)** —
+bis dieses Gem **ALLE Funktionen** des Vorgängers übernommen hat und der kanonische
+Deploy-Ablauf (`setup` → `deploy` ssl:false → `certbot:generate` → ssl:true → `deploy`,
+siehe myTOOLZ `docs/deploy-runbook.md`) auf einem echten Server verifiziert wurde.
+
+---
+
 # Capistrano::Recipes4nuxt
 
 Capistrano recipes to deploy **Nuxt 2 and Nuxt 3** apps — proxy-ready, nvm-aware, nginx + certbot included.
 
-**Nachfolger von [capistrano-nuxt2](https://github.com/2strange/capistrano-nuxt2)** — version-agnostisch, kompatibel mit dem `recipes2go`-Setup inkl. Proxy-Config.
-
-> Neue Projekte: dieses Gem verwenden. Bestehende `capistrano-nuxt2`-Projekte können weiterhin das alte Gem nutzen, aber bitte auf `capistrano-recipes4nuxt` migrieren.
+**Designierter Nachfolger von [capistrano-nuxt2](https://github.com/2strange/capistrano-nuxt2)** — version-agnostisch, kompatibel mit dem `recipes2go`-Setup inkl. Proxy-Config.
 
 
 ## Usage
