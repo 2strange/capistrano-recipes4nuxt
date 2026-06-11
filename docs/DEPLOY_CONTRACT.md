@@ -1,13 +1,21 @@
 # DEPLOY_CONTRACT.md — Nitro-SSR-Deploy-Kontrakt (recipes4nuxt)
 
-> **Status: DESIGN-ENTWURF** — Branch `design/nitro-deploy-contract`, kein Release.
+> **Status: ✅ KONTRAKT FINALISIERT (alle Entscheide getroffen, Stand 2026-06-11)** —
+> Branch `design/nitro-deploy-contract`. **Umsetzung blockiert bis recipes4nuxt-WIP-Entsperrung**
+> (Merge-/Freigabe-Entscheid: Tim mit Austin). Dieses Dokument ist ab jetzt der **verbindliche
+> Bau-Kontrakt** für SSR 1.0.
 > Autor: Cargo (myTOOLZ release) · Stand: 2026-06-11 · Review: Tim → Austin.
 >
-> **Update 2026-06-11 (Austin Q1–Q4 entschieden):** Q1 systemd (PM2 raus) = DECIDED ·
-> Q2 Admin-Rebuild-Trigger bleibt **funktionell erhalten** (Override des alten §3.2 „entfällt
-> ersatzlos"), nur das Mittel ist offen → Variantenvergleich **§6a** · Q3 ENV-File = DECIDED ·
-> Q4 `NUXT_APP_ENV` = DECIDED (Mehrfach-Instanz-Hinweis in §4 ergänzt) · Q5 Restart-Gap-Empfehlung
-> dokumentiert (Nod ausstehend). Die Q6-Entscheidung (swr-Purge vs prerender-Rebuild) liegt in §6a.
+> **Entscheid-Stand 2026-06-11 (alle 6 offenen Fragen geschlossen):**
+> Q1 systemd (PM2 raus) = **DECIDED** · Q2 Admin-Rebuild-Trigger bleibt **funktionell erhalten**
+> (Override des alten §3.2 „entfällt ersatzlos") = **DECIDED** · Q3 ENV-File = **DECIDED** ·
+> Q4 `NUXT_APP_ENV` + Port-Regel = **DECIDED** · Q5 Restart-Gap für 1.0 **akzeptiert** +
+> nginx-`proxy_next_upstream`-Weichmacher (echtes Zero-Downtime = post-1.0/G7) = **DECIDED** ·
+> Q6 = **Variante A2** (`swr` + interner Nitro-Purge-Endpoint, BE macht `curl`) = **DECIDED**;
+> Variante B verworfen (Backup, falls Purge-Risiko eskaliert). **Auflage zu A2:** Purge-Risiko
+> **G15** (routeRules-Cache-Invalidierung ist Nitro-intern/undokumentiert, nuxt#20495) →
+> Nitro-Version-Pin + Smoke-Test sind **Pflicht-Bestandteil von 1.0, nicht optional.**
+> Status-Übersicht aller Q in §6, 1.0-Roadmap in §5, Umsetzungs-Reihenfolge in §7.
 >
 > **Anlass (Keystone-Entscheid Austin, 2026-06-10):** Das neue ValidSlots-Nuxt3-Frontend
 > rendert via **Nitro-Server (SSR + SWR-Caching)**, NICHT Vollstatik `nuxi generate`.
@@ -52,22 +60,23 @@ und der Restart-Zeitpunkt ist vom Release-Symlink entkoppelt. nginx (bzw. der
 |---|---|---|
 | Artefakt | `dist/` → `shared/www/`, nginx serviert Files | `.output/` → `shared/output/`, Nitro-Prozess serviert |
 | „Live schalten" | rsync ist der Go-Live | rsync **+ Service-Restart** ist der Go-Live |
-| Content-Aktualität | eingefroren bis zum nächsten Render | je nach Variante (§6a): **SWR zur Laufzeit** (routeRules, TTL) ODER **prerender + Trigger-Rebuild** |
-| Admin-Rebuild-Trigger | Kern-Feature (Sidekiq-Worker, `npm run export`) | **bleibt funktionell**, Mittel offen (s. §3.2 + §6a) |
+| Content-Aktualität | eingefroren bis zum nächsten Render | **DECIDED A2:** `swr` zur Laufzeit (routeRules, TTL) — frisch ≤TTL automatisch, sofort bei Admin-Purge (§6a) |
+| Admin-Rebuild-Trigger | Kern-Feature (Sidekiq-Worker, `npm run export`) | **bleibt funktionell**; Mittel = `curl` auf internen Nitro-Purge-Endpoint (DECIDED A2, §3.2 + §6a) |
 | Laufzeit-Abhängigkeit | keine (nur nginx) | Node-Prozess muss überwacht laufen (s. §2) |
 
-⚠️ Bewusster Trade-off (**Q5**): `systemctl restart` hat einen **kurzen Downtime-Gap** (Sekunden,
-Nitro bootet schnell), und das `rsync --delete` in `shared/output/` tauscht Dateien unter dem
-laufenden Prozess (der alte Prozess hält sein `index.mjs` offen — ESM ist beim Start geladen,
-Assets unter `.output/public` könnten kurz mixen). Für **On-Prem mit 1 Instanz/Kunde**
-akzeptieren wir das für 1.0.
+⚠️ Bewusster Trade-off (**Q5 — ✅ DECIDED 2026-06-11**): `systemctl restart` hat einen **kurzen
+Downtime-Gap** (Sekunden, Nitro bootet schnell), und das `rsync --delete` in `shared/output/` tauscht
+Dateien unter dem laufenden Prozess (der alte Prozess hält sein `index.mjs` offen — ESM ist beim Start
+geladen, Assets unter `.output/public` könnten kurz mixen). Für **On-Prem mit 1 Instanz/Kunde**
+**akzeptieren wir diesen Gap für 1.0** (Austin 2026-06-11).
 
-**Cargo-Empfehlung Q5 (Nod ausstehend):** Gap für 1.0 **akzeptieren** + billiger Weichmacher:
+**✅ Q5 DECIDED (Austin 2026-06-11): Restart-Gap für 1.0 akzeptiert + nginx-Weichmacher Pflicht.**
+Der Gap wird für 1.0 in Kauf genommen, abgefedert durch den billigen Weichmacher:
 nginx `proxy_next_upstream error timeout http_502` (+ `proxy_next_upstream_tries 2`), sodass ein
 Request, der genau ins Restart-Fenster fällt, automatisch einen zweiten Versuch bekommt — bei
 einem Sekunden-Restart fällt das real praktisch nie auf. **Echtes** Zero-Downtime
-(Port-Flip: zwei Units A/B + nginx-Upstream-Switch, oder Socket-Activation) = **post-1.0 / Gap G7**.
-→ Austin muss nur ja/nein zu „1.0 akzeptiert + `proxy_next_upstream`-Weichmacher" sagen.
+(Port-Flip: zwei Units A/B + nginx-Upstream-Switch, oder Socket-Activation) ist damit bewusst
+**post-1.0 / Gap G7** und kein 1.0-Blocker.
 
 ### 1.3 Static-Mode bleibt
 
@@ -135,36 +144,35 @@ zu „letzter erfolgreicher **Deploy**". Der `buildNeeded`-Vergleich des BE
 (`max(updated_at)` vs. mtime) wird damit für Content **bedeutungslos** — Content ist via
 SWR nach TTL-Ablauf automatisch frisch.
 
-### 3.2 BLEIBT FUNKTIONELL — Admin-Rebuild-Trigger (Q2-Override, Austin 2026-06-11)
+### 3.2 BLEIBT FUNKTIONELL — Admin-Rebuild-Trigger (Q2-Override + Q6=A2, ✅ DECIDED 2026-06-11)
 
-> ⚠️ **OVERRIDE des früheren Entwurfs.** Der alte §3.2 sagte „ENTFÄLLT ersatzlos". Das ist
-> **überholt.** Austin 2026-06-11: *„admin trigger muss funktionell möglich, triggert aktuell
-> einen sidekiq task der die seite neu rendert."* Der Admin-Trigger **bleibt als Funktion
-> erhalten** — die offene Entscheidung ist nur das **Mittel** dahinter. Beide Mittel-Varianten
-> sind in **§6a** vollständig ausgearbeitet; Austin entscheidet dort A vs B.
+> ✅ **DECIDED 2026-06-11.** Der alte §3.2 sagte „ENTFÄLLT ersatzlos" — das ist **überholt**.
+> Austin 2026-06-11: *„admin trigger muss funktionell möglich, triggert aktuell einen sidekiq task
+> der die seite neu rendert."* Der Admin-Trigger **bleibt als Funktion erhalten** (Q2), und das
+> **Mittel ist jetzt entschieden: Variante A2** (`swr` + interner Nitro-Purge-Endpoint, BE macht
+> `curl`) — voll ausgearbeitet in **§6a**. Variante B ist verworfen (Backup, falls das Purge-Risiko
+> G15 eskaliert).
 
-Was das konkret heißt:
+Was das konkret heißt (Variante A2):
 
 - Der **Admin-Button** (heute `renderState.vue` → `$admin.index('rebuild_frontend')`) und der
   **BE-Endpoint** `GET rebuild_frontend` (heute `BuildFrontendWorker.perform_async`) bleiben.
-  Nur die **Aktion**, die der Worker ausführt, ändert sich je nach Variante:
-  - **Variante A (swr + Cache-Purge):** Trigger → leichtgewichtiger **Purge der Nitro-Route-Caches**
-    → nächster Request rendert frisch. Kein npm-Build. (§6a-A)
-  - **Variante B (prerender + Rebuild):** Trigger → echter **Re-Render/Build** der prerender-Routen
-    (näher am Ist: heute Sidekiq → `npm run export`). (§6a-B)
+  Nur die **Aktion** ändert sich: der Worker macht statt `npm run export` einen **authentifizierten
+  `curl 127.0.0.1:<port>/api/_purge`** → der interne Nitro-Endpoint purged die Route-Caches
+  (`useStorage('cache').clear('nitro:routeRules')`) → nächster Request rendert frisch. **Kein
+  npm-Build.** (§6a, Variante A)
 - Der **Flag-Datei-Status-Kontrakt** (§3.1, `_builded_app`/`_builded_logs`/`_builded_frontend`)
-  bleibt in **beiden** Varianten der Lesekontrakt für die Admin-UI — die UI zeigt weiter
-  „zuletzt aktualisiert / läuft gerade". In Variante A zeigt sie zusätzlich die SWR-TTL
-  („Inhalte spätestens nach N Min frisch"), in Variante B den Build-Status wie heute.
-- **Akteur-States im SSR-Pfad:** `initialized|admin-interface` + `purging|admin-interface`/
-  `rendering|admin-interface` (Variante A bzw. B) bleiben/kommen — der Akteur-Teil (`admin-interface`
-  vs `deploy`) trennt weiterhin „Admin hat getriggert" von „Deployment lief". Detail in §6a.
-- `generating|deploy` taucht im SSR-Pfad nur in **Variante B** (Rebuild) auf; in Variante A nie.
+  bleibt der Lesekontrakt für die Admin-UI — die UI zeigt weiter „zuletzt aktualisiert / läuft
+  gerade" und zusätzlich die **SWR-TTL** („Inhalte spätestens nach N Min frisch").
+- **Akteur-States im SSR-Pfad:** `initialized|admin-interface` + `purging|admin-interface` kommen
+  hinzu — der Akteur-Teil (`admin-interface` vs `deploy`) trennt weiterhin „Admin hat getriggert"
+  von „Deployment lief". `generating|deploy` (npm-Re-Render) taucht im SSR-Pfad **nicht** auf
+  (das wäre das verworfene Variante-B-Verhalten).
 
-**Revier-Abgrenzung (gilt für beide Varianten):** recipes4nuxt liefert die **Deploy-/Task-Seite**
-(Tasks, Unit-Template, optional Purge-Endpoint-Konvention/Task). Der **Admin-Button (FE)** ist
-**Luke-Revier**, der **BE-Endpoint/Worker** ist **Bill-Revier** (slots). Genaue Slot-Schnitte
-pro Variante in §6a, Punkt (2).
+**Revier-Abgrenzung (A2):** recipes4nuxt liefert die **Deploy-/Task-Seite** (Tasks, Unit-Template);
+der Purge-Endpoint lebt im **FE/Layer** (Luke / ggf. Tim-Layer, wiederverwendbar), der **Admin-Button
+(FE)** ist **Luke-Revier**, der **BE-Endpoint/Worker** (`curl`-Call) ist **Bill-Revier** (slots).
+Gem-Last in A2 ist gering. Genaue Slot-Schnitte in §6a, Variante A, Punkt (2).
 
 ---
 
@@ -266,50 +274,76 @@ Bestehendes (zero-config-safe).
 
 ---
 
-## 5. Gap-Liste: v0.5.0 → Milestone 1.0 („SSR vollständig")
+## 5. Gap-Liste = verbindliche 1.0-Roadmap (v0.5.0 → „SSR vollständig")
 
-| # | Gap | Aufwand | Prio |
-|---|---|---|---|
-| G1 | **ENV-File-Kontrakt**: `EnvironmentFile=-…/nuxt3_ssr.env` ins Unit-Template + Tasks `nuxt3:ssr:upload_env` / `check_env` (keys-Muster, §4.2) | M | **hoch** |
-| G2 | **Flag-File-Vervollständigung SSR**: State `restarting\|deploy`; `ERROR-<task>\|deploy` bei Task-Fehlschlag (Fehler-Sichtbarkeit in der Admin-UI) | S | **hoch** |
-| G3 | **Build-Logs + Build-ENV**: `nuxt build` loggt heute NICHT nach `_builded_logs` (nur `generate`, und auch dort fehlt das `tee` im nvm-Zweig — Bug); Build-Tasks sourcen das ENV-File (§4.3) | S–M | **hoch** |
-| G4 | **Erst-Deploy-Ergonomie**: Hook prüft `systemctl cat <unit>` — Unit fehlt → automatisch `ssr:configure` statt Restart; `nuxt3_ssr_hooks=false`-Tanz entfällt | S | **hoch** |
-| G5 | **Health-Check** `nuxt3:ssr:verify` nach Restart (curl `127.0.0.1:<port>` mit Retry, Deploy schlägt fehl statt still kaputt); ans Hook-Ende | S | **hoch** |
-| G6 | **Monit-Pairing**: Monit-Template für die Nitro-Unit (PIDFile existiert schon), analog recipes2go `monit.rake` | M | mittel |
-| G7 | **Zero-Downtime dokumentieren/optional lösen**: Restart-Gap + `rsync --delete` unter laufendem Prozess (§1.2); Option Port-Flip (zwei Units A/B + nginx-Upstream-Switch) oder Socket-Activation | L | niedrig (post-1.0 ok) |
-| G8 | **`node_modules`-Hygiene**: `rm -rf node_modules/*` + shared bei jedem Deploy = teuer; npm-Cache-Strategie prüfen (npm ci ist schon drin) | M | niedrig |
-| G9 | **Tests (Dexter)**: Specs für Task-Verkabelung + ERB-Template-Rendering (Unit-File mit/ohne ENV-File, nvm an/aus) | M | mittel |
-| G10 | **Docs (Homer)**: README-SSR-Abschnitt mit diesem Kontrakt abgleichen; Migrations-Guide nuxt2→recipes4nuxt (inkl. „Worker/Trigger abbauen") | S | mittel |
-| G11 | **Scope-Entscheid Alt-Tasks**: `nuxt.rake` (Nuxt2) + `vue.rake` carry-over — in 1.0 behalten (Migrationspfad) oder deprecaten? | S | mittel |
-| G12 | **Neutrale Deploy-Mode-Var** (`NUXT_APP_ENV` statt `build_deploy_env_var`-Konstrukt), abwärtskompatibel (Drop-in-Update-Regel!) — ✅ Q4 DECIDED | S | mittel |
-| G13 | **Port-Doppelbelegungs-Check** `nuxt3:ssr:check_port` (§4.4): warnt bei `<port>`-Kollision auf geteilter Box statt `EADDRINUSE` im journal; reiner Ergonomie-Guard | S | niedrig |
-| G14 | **Content-Refresh-Mechanik = Ergebnis §6a** (A oder B). Bei **A**: Purge-Task/-Konvention `nuxt3:ssr:purge_cache` + Cache-Storage-Driver-Vorgabe (fs/redis, shared) im Unit/ENV-Kontrakt; bei **B**: `nuxt3:rebuild`-Task (vom BE-Worker via SSH/cap angestoßen) + Re-Render-States. Genauer Schnitt + Aufwand in §6a | M (A) / M–L (B) | **hoch** (blockt slots-Trigger) |
-| G15 | **Purge-Pfad-Risiko (nur Variante A)**: routeRules-`swr`-Cache hat **kein First-Class-Invalidierungs-API** (s. §6a-A „Risiko"); Purge über Storage-Key-Prefix `nitro:routeRules`/`nitro:handlers` ist **internes/undokumentiertes** Verhalten → braucht Smoke-Test + Pin auf getestete Nitro-Version, sonst Bruchgefahr bei Updates | S–M | **hoch** (Entscheidungs-Risiko für A) |
+> Diese Tabelle ist nach den Entscheiden vom 2026-06-11 die **verbindliche 1.0-Roadmap**.
+> Spalte **A2?** markiert die Variante-A2-spezifischen Punkte (Content-Refresh + Purge).
+> Prio-Buckets: **P0** = 1.0-Blocker (muss rein) · **P1** = 1.0-Soll (nach Tim-Priorisierung) ·
+> **P2** = post-1.0 erlaubt.
 
-Definition „1.0 = SSR vollständig": G1–G5 umgesetzt + G9/G10 grün + **G14** (Content-Refresh-Mittel
-implementiert, A oder B); G6/G11/G12 nach Tim-Priorisierung; G7/G8/G13 dürfen post-1.0; G15 nur
-relevant falls Variante A gewählt.
+| # | Gap | Prio | A2? | Aufwand |
+|---|---|---|---|---|
+| G1 | **ENV-File-Kontrakt**: `EnvironmentFile=-…/nuxt3_ssr.env` ins Unit-Template + Tasks `nuxt3:ssr:upload_env` / `check_env` (keys-Muster, §4.2) | **P0** | | M |
+| G2 | **Flag-File-Vervollständigung SSR**: States `restarting\|deploy`, `purging\|admin-interface`; `ERROR-<task>\|deploy` bei Task-Fehlschlag (Fehler-Sichtbarkeit in der Admin-UI) | **P0** | (Teil) | S |
+| G3 | **Build-Logs + Build-ENV**: `nuxt build` loggt heute NICHT nach `_builded_logs` (nur `generate`, und auch dort fehlt das `tee` im nvm-Zweig — Bug); Build-Tasks sourcen das ENV-File (§4.3) | **P0** | | S–M |
+| G4 | **Erst-Deploy-Ergonomie**: Hook prüft `systemctl cat <unit>` — Unit fehlt → automatisch `ssr:configure` statt Restart; `nuxt3_ssr_hooks=false`-Tanz entfällt | **P0** | | S |
+| G5 | **Health-Check** `nuxt3:ssr:verify` nach Restart (curl `127.0.0.1:<port>` mit Retry, Deploy schlägt fehl statt still kaputt); ans Hook-Ende | **P0** | | S |
+| G14 | **Content-Refresh-Mechanik (A2)**: FE-seitig interner Purge-Endpoint + `swr`-routeRules (FE/Layer-Revier); Gem-Seite klein — Purge-Konvention dokumentieren, ENV/Port-Kontrakt für den Endpoint sichern (kein Cache-Driver-Mount nötig, da A2 prozess-intern). Blockt den slots-Admin-Trigger. | **P0** | **✅ A2** | M (klein gem-seitig) |
+| G15 | **Purge-Smoke-Test + Nitro-Version-Pin (A2-Auflage, Austin 2026-06-11)**: routeRules-`swr`-Cache hat **kein First-Class-Invalidierungs-API** (nuxt#20495); Purge über Storage-Key-Prefix `nitro:routeRules` ist **internes/undokumentiertes** Verhalten → **Pflicht:** Pin auf getestete Nitro-Version **+** Smoke-Test, der den Purge real verifiziert. **Nicht optional** — Bestandteil der 1.0-Freigabe. | **P0** | **✅ A2** | S–M |
+| G9 | **Tests (Dexter)**: Specs für Task-Verkabelung + ERB-Template-Rendering (Unit-File mit/ohne ENV-File, nvm an/aus) | **P1** | | M |
+| G10 | **Docs (Homer)**: README-SSR-Abschnitt mit diesem Kontrakt abgleichen; Migrations-Guide nuxt2→recipes4nuxt (inkl. „Worker → `curl`-Purge umbauen") | **P1** | (Teil) | S |
+| G6 | **Monit-Pairing**: Monit-Template für die Nitro-Unit (PIDFile existiert schon), analog recipes2go `monit.rake` | **P1** | | M |
+| G11 | **Scope-Entscheid Alt-Tasks**: `nuxt.rake` (Nuxt2) + `vue.rake` carry-over — in 1.0 behalten (Migrationspfad) oder deprecaten? | **P1** | | S |
+| G12 | **Neutrale Deploy-Mode-Var** (`NUXT_APP_ENV` statt `build_deploy_env_var`-Konstrukt), abwärtskompatibel (Drop-in-Update-Regel!) — ✅ Q4 DECIDED, nur noch umsetzen | **P1** | | S |
+| G7 | **Zero-Downtime** (echtes): Restart-Gap + `rsync --delete` unter laufendem Prozess (§1.2); Option Port-Flip (zwei Units A/B + nginx-Upstream-Switch) oder Socket-Activation. ✅ Q5 DECIDED: **post-1.0**, 1.0 nutzt nginx-`proxy_next_upstream`-Weichmacher. | **P2** | | L |
+| G8 | **`node_modules`-Hygiene**: `rm -rf node_modules/*` + shared bei jedem Deploy = teuer; npm-Cache-Strategie prüfen (npm ci ist schon drin) | **P2** | | M |
+| G13 | **Port-Doppelbelegungs-Check** `nuxt3:ssr:check_port` (§4.4): warnt bei `<port>`-Kollision auf geteilter Box statt `EADDRINUSE` im journal; reiner Ergonomie-Guard | **P2** | | S |
+
+### Definition „1.0 = fertig" (verbindlich, Tim/Austin 2026-06-11)
+
+**1.0 ist erreicht, wenn ALLE folgenden Bedingungen erfüllt sind:**
+
+1. **Alle P0-Gaps umgesetzt:** G1, G2, G3, G4, G5 (Kern-SSR-Deploy) **+ G14 + G15** (Content-Refresh
+   A2 inkl. der **Pflicht-Auflage** Nitro-Version-Pin + Purge-Smoke-Test — nicht optional).
+2. **P1-Gaps** (G9, G10, G6, G11, G12) nach Tim-Priorisierung grün; mindestens G9 (Tests) + G10 (Docs).
+3. **P2-Gaps** (G7, G8, G13) dürfen post-1.0.
+4. **Freigabe-Bedingung (Tim/Austin, hart):**
+   **(a) Voll-Parität zu `capistrano-nuxt2`** — alles, was der nuxt2-Recipe konnte (inkl. Deploy-Status-
+   Sichtbarkeit + funktionaler Admin-Trigger), funktioniert im recipes4nuxt-SSR-Pfad gleichwertig.
+   **(b) Ein realer, verifizierter Deploy** auf einem Testbett (moja- und/oder ValidSlots) ist
+   nachweislich grün durchgelaufen (Build → Restart → Health-Check → Admin-Purge verifiziert).
+   **→ Vor Erfüllung von (a) UND (b) erfolgt KEINE WIP-Entsperrung / kein 1.0-Release.**
 
 ---
 
-## 6. Offene Fragen (→ Austin via Tim)
+## 6. Entscheidungs-Status — alle 6 Fragen DECIDED (Stand 2026-06-11)
 
-| # | Frage | Status / Kontext |
+> ✅ **Alle 6 offenen Fragen sind entschieden (Austin via Tim, 2026-06-11).** Es stehen keine
+> Kontrakt-Entscheide mehr aus — was bleibt, ist die Umsetzung (blockiert bis WIP-Entsperrung).
+
+| # | Frage | Entscheid (Stand 2026-06-11) |
 |---|---|---|
-| Q1 | **systemd bestätigen, PM2 verwerfen?** (§2) | ✅ **DECIDED 2026-06-11: systemd, PM2 raus** |
-| Q2 | Admin-Rebuild-Trigger streichen? | ✅ **DECIDED 2026-06-11: Trigger BLEIBT funktionell** (Override §3.2); Mittel offen → **§6a / Q6** |
-| Q3 | **ENV-File-Konvention ok?** Lokal `config/nuxt_env/<stage>.env` (gitignored) → `shared/config/nuxt3_ssr.env` | ✅ **DECIDED 2026-06-11: ja** → G1 frei |
-| Q4 | **Neutrale Deploy-Mode-Variable** `NUXT_APP_ENV`? Mehrfach-Instanz-Frage? | ✅ **DECIDED 2026-06-11: `NUXT_APP_ENV` ok**; Mehrfach-Box geklärt (§4.4 — nur `nuxt3_ssr_port` muss eindeutig sein) |
-| Q5 | **Zero-Downtime-Anspruch**: Sekunden-Restart-Gap für On-Prem 1.0 akzeptiert (G7 = post-1.0)? | 🟡 **Nod ausstehend** — Cargo-Empfehlung: 1.0 akzeptieren + nginx `proxy_next_upstream`-Weichmacher (§1.2). Austin: ja/nein? |
-| Q6 | **Content-Refresh-Mittel: Variante A (swr + Cache-Purge) vs Variante B (prerender + Rebuild-Trigger)?** | 🟡 **OFFEN — Entscheidung steht an.** Voller Vergleich + Cargo-Empfehlung in **§6a**. (slots-FE Luke / BE Bill betroffen) |
+| Q1 | **systemd vs PM2** (§2) | ✅ **DECIDED: systemd, PM2 raus** |
+| Q2 | Admin-Rebuild-Trigger streichen? | ✅ **DECIDED: Trigger BLEIBT funktionell** (Override §3.2); Mittel = A2 (s. Q6) |
+| Q3 | **ENV-File-Konvention** lokal `config/nuxt_env/<stage>.env` (gitignored) → `shared/config/nuxt3_ssr.env` | ✅ **DECIDED: ja** → G1 frei |
+| Q4 | **Neutrale Deploy-Mode-Variable** `NUXT_APP_ENV` + Mehrfach-Instanz-/Port-Regel | ✅ **DECIDED: `NUXT_APP_ENV` ok**; Port-Regel geklärt (§4.4 — nur `nuxt3_ssr_port` muss pro Box eindeutig sein) |
+| Q5 | **Zero-Downtime**: Sekunden-Restart-Gap für On-Prem 1.0 akzeptiert (G7 = post-1.0)? | ✅ **DECIDED: Gap für 1.0 akzeptiert** + nginx `proxy_next_upstream`-Weichmacher Pflicht; echtes Zero-Downtime = post-1.0/G7 (§1.2) |
+| Q6 | **Content-Refresh-Mittel: Variante A (swr + Purge) vs B (prerender + Rebuild)?** | ✅ **DECIDED: Variante A2** (`swr` + interner Nitro-Purge-Endpoint, BE macht `curl`). **Variante B verworfen** (Backup, falls Purge-Risiko G15 eskaliert). **Auflage:** G15 (Nitro-Version-Pin + Purge-Smoke-Test) ist Pflicht-Bestandteil von 1.0 (§6a) |
 
 ---
 
-## 6a. Content-Refresh — Variantenvergleich (Q6 + Q2)
+## 6a. Content-Refresh — ✅ DECIDED: Variante A2 (Q6 + Q2)
 
-> **Worum es geht:** Der Admin-Rebuild-Trigger **bleibt** (Q2-Override, §3.2). In **beiden**
-> Varianten drückt der Admin denselben Button und die Flag-Status-UI funktioniert weiter — der
-> Unterschied ist **das Mittel**, mit dem „frischer Content" entsteht. Heute (Nuxt2-Ist):
+> ✅ **ENTSCHIEDEN (Austin 2026-06-11): Variante A2** — `swr` + interner Nitro-Purge-Endpoint,
+> BE macht `curl`. **Variante B ist verworfen** und bleibt hier nur als dokumentierter **Backup**
+> stehen, falls das Purge-Risiko (G15) später eskaliert. Der Variantenvergleich unten ist die
+> Entscheidungs-Grundlage; die Auflage zu A2 (Nitro-Version-Pin + Purge-Smoke-Test, G15) ist
+> **Pflicht-Bestandteil von 1.0**.
+>
+> **Worum es geht:** Der Admin-Rebuild-Trigger **bleibt** (Q2-Override, §3.2). Der Admin drückt
+> denselben Button und die Flag-Status-UI funktioniert weiter — das gewählte **Mittel** (A2):
+> der Button purged via `curl` die Nitro-Route-Caches, der nächste Request rendert frisch.
+> Heute (Nuxt2-Ist):
 > Admin-Button → `GET rebuild_frontend` → Sidekiq `BuildFrontendWorker` → `npm run export`
 > (= `nuxi generate`) → `rsync dist/ → shared/www/` → nginx serviert statisch. Debounce: 6-min-Fenster.
 > Quelle Ist-Pfad: `slots_backend/app/workers/build_frontend_worker.rb`,
@@ -325,7 +359,7 @@ relevant falls Variante A gewählt.
 
 ---
 
-### Variante A — `swr` + Cache-Purge-Trigger  *(Tim-Empfehlung)*
+### Variante A — `swr` + Cache-Purge-Trigger  *(✅ GEWÄHLT — A2)*
 
 **Idee:** Content-Routen auf `swr` (stale-while-revalidate). Die TTL hält Inhalte im Normalbetrieb
 von selbst frisch — **kein Rebuild**. Der Admin-Button löst keinen Build aus, sondern **purged
@@ -406,7 +440,11 @@ beisteuern; bei A1 die Driver-/Mount-Konvention (Gap G14-A).
 
 ---
 
-### Variante B — `prerender` + Rebuild-Trigger  *(näher am Ist)*
+### Variante B — `prerender` + Rebuild-Trigger  *(❌ VERWORFEN — Backup, falls G15 eskaliert)*
+
+> ❌ **Verworfen (Austin 2026-06-11).** Nicht für 1.0 umsetzen. Dokumentiert als Rückfall-Option,
+> falls das routeRules-Purge-Risiko (G15) in der Praxis als No-Go eskaliert. Inhalt unverändert
+> als Referenz.
 
 **Idee:** Marketing-Routen bleiben `prerender: true` (zur Build-Zeit gerendert, danach
 **eingefroren bis zum nächsten Rebuild**). Der Admin-Button triggert einen **echten Re-Render**
@@ -484,22 +522,23 @@ mittel–groß, plus Re-Render-States im Flag-Schema.
 | Failure-Mode | graceful (stale bis TTL) | Build-Fehler sichtbar, Box-Last |
 | Skaliert bei häufigen Edits | **ja** | nein (Build-Last) |
 
-### 6a.y Cargo-Empfehlung
+### 6a.y Entscheid + Begründung (✅ A2 GEWÄHLT, Austin 2026-06-11)
 
-**→ Variante A (swr + interner Purge-Endpoint A2) — mit einer ehrlichen Risiko-Auflage.**
+**→ ✅ GEWÄHLT: Variante A2 (swr + interner Purge-Endpoint) — mit verbindlicher Risiko-Auflage.**
 
-Begründung: A ist betrieblich klar überlegen — sofortige Frische bei minimaler Last, graceful bei
-Fehlern, skaliert bei häufigen Content-Edits, kein Restart-Gap pro Klick, und die Gem-Last ist klein
-(Kern liegt sauber in FE/BE-Slots). Der entscheidende Vorbehalt ist **G15**: routeRules-Cache-Purge
-hat **kein offizielles API**; der Storage-Prefix-Purge ist internes Verhalten. Das entschärfe ich
-durch **A2 (interner Purge-Endpoint statt Fremdprozess-Storage-Zugriff)** + **Nitro-Version-Pin +
-Smoke-Test** — dann ist das Restrisiko ein Versions-Upgrade-Check, kein Architektur-Problem.
+Begründung (= Cargo-Votum, von Austin bestätigt): A ist betrieblich klar überlegen — sofortige
+Frische bei minimaler Last, graceful bei Fehlern, skaliert bei häufigen Content-Edits, kein
+Restart-Gap pro Klick, und die Gem-Last ist klein (Kern liegt sauber in FE/BE-Slots). Der
+entscheidende Vorbehalt ist **G15**: routeRules-Cache-Purge hat **kein offizielles API**; der
+Storage-Prefix-Purge ist internes Verhalten. Das ist entschärft durch **A2 (interner Purge-Endpoint
+statt Fremdprozess-Storage-Zugriff)** + **Nitro-Version-Pin + Purge-Smoke-Test** — beides ist als
+**Pflicht-Auflage** (G15, P0) in der 1.0-Roadmap verankert, nicht optional. Damit ist das Restrisiko
+ein Versions-Upgrade-Check, kein Architektur-Problem.
 
-**Wenn Austin das Purge-Restrisiko NICHT tragen will**, ist **Variante B** der sichere, aber teurere
-Fallback (Standard-Build, kein API-Risiko) — Preis: mehr Gem-Arbeit, Build-Last + Restart-Gap pro
-Klick, eingefrorener Content zwischen Klicks. Beide halten den Admin-Trigger funktionell (Q2 erfüllt).
-
-**Mein Votum: A2.** B nur, falls das undokumentierte Purge-Verhalten als No-Go gilt.
+**Verworfen: Variante B** — bleibt dokumentierter Backup. Falls das undokumentierte Purge-Verhalten
+in der Praxis doch als No-Go eskaliert, ist B der sichere, aber teurere Rückfall (Standard-Build,
+kein API-Risiko; Preis: mehr Gem-Arbeit, Build-Last + Restart-Gap pro Klick, eingefrorener Content
+zwischen Klicks). Beide hielten den Admin-Trigger funktionell (Q2 erfüllt) — entschieden ist A2.
 
 ### 6a.z Quellen (Nitro/Nuxt-Mechanik, geprüft)
 
@@ -512,3 +551,42 @@ Klick, eingefrorener Content zwischen Klicks. Beide halten den Admin-Trigger fun
   shared Driver ODER internen Endpoint): https://deepwiki.com/nitrojs/nitro/5.3-caching-system
 - Nuxt Prerendering — `prerender:true` ist bis zum nächsten Build eingefroren; `isr` ≈ swr auf Node:
   https://nuxt.com/docs/getting-started/prerendering
+
+---
+
+## 7. Umsetzungs-Reihenfolge 1.0 (nach WIP-Entsperrung)
+
+> Sobald die WIP-Sperre fällt (Tim/Austin), in dieser Reihenfolge loslegen. Ziel: erst der
+> Kern-SSR-Deploy-Pfad lauffähig + verifizierbar, dann Content-Refresh (A2), dann Härtung,
+> dann die Freigabe-Bedingung (Voll-Parität + realer Deploy).
+
+**Etappe 1 — Kern-Deploy lauffähig (P0, Gem-only, Cargo):**
+1. **G1** ENV-File-Kontrakt (`EnvironmentFile=-…` ins Unit-Template + `ssr:upload_env`/`check_env`).
+   Zuerst, weil alle folgenden Tasks die Laufzeit-ENV brauchen.
+2. **G3** Build-ENV-Sourcing + Build-Logs-Fix (`tee`-Bug im nvm-Zweig) — Build muss sauber loggen,
+   bevor man Fehler debuggt.
+3. **G2** Flag-States vervollständigen (`restarting|deploy`, `ERROR-<task>|deploy`,
+   `purging|admin-interface`) — Sichtbarkeit für alles Weitere.
+4. **G4** Erst-Deploy-Ergonomie (Unit-Autodetect statt `nuxt3_ssr_hooks=false`-Tanz).
+5. **G5** Health-Check `ssr:verify` nach Restart — ab hier schlägt ein kaputter Deploy laut fehl.
+
+**Etappe 2 — Content-Refresh A2 (P0, FE/BE + kleine Gem-Konvention):**
+6. **G14 (A2)** FE: `swr`-routeRules + interner Purge-Endpoint (Luke/Layer); BE: Worker-Innenleben
+   `npm run export` → `curl …/_purge` (Bill); Gem dokumentiert die Purge-Konvention + ENV/Port-
+   Kontrakt für den Endpoint. (Hängt an Etappe 1, weil ENV/Port-Kontrakt dort steht.)
+7. **G15 (A2-Pflicht-Auflage)** Nitro-Version-Pin + Purge-Smoke-Test, der den Cache-Purge real
+   verifiziert. **Direkt mit G14 zusammen** — ohne diesen Test ist A2 nicht 1.0-fähig.
+
+**Etappe 3 — Härtung + Doku (P1):**
+8. **G9** Specs (Dexter) für Task-Verkabelung + ERB-Template-Rendering.
+9. **G10** Docs (Homer): README-SSR-Abschnitt + Migrations-Guide nuxt2→recipes4nuxt
+   (inkl. „Worker → `curl`-Purge umbauen").
+10. **G6 / G11 / G12** nach Tim-Priorisierung (Monit-Pairing / Alt-Task-Scope / `NUXT_APP_ENV`-Umsetzung).
+
+**Etappe 4 — Freigabe (hart, Tim/Austin):**
+11. **Voll-Parität zu `capistrano-nuxt2`** nachweisen (Deploy-Sichtbarkeit + Admin-Trigger gleichwertig).
+12. **Ein realer, verifizierter Deploy** auf moja- und/oder ValidSlots-Testbett, grün durch
+    (Build → Restart → Health-Check → Admin-Purge verifiziert). **Erst danach** WIP-Entsperrung / 1.0.
+
+**Post-1.0 (P2, jederzeit danach):** G7 (echtes Zero-Downtime), G8 (`node_modules`-Hygiene),
+G13 (Port-Doppelbelegungs-Check).
