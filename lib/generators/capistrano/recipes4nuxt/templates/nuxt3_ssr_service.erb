@@ -10,12 +10,22 @@ Group=<%= fetch(:nuxt3_ssr_user) %>
 WorkingDirectory=<%= shared_path %>/<%= fetch(:nuxt3_output_folder) %>
 
 # Nitro listens on host:port; the nginx proxy passes through to it.
+# NOTE (Port-Disziplin, shared box): nuxt3_ssr_port MUST be unique per SSR
+# instance on a shared host — two units on the same port → EADDRINUSE, the
+# second won't start. Default 3500; allocate a free port per app/stage and
+# point nginx_upstream_port at it. (Contract §4.4)
 Environment=NODE_ENV=production
 Environment=NITRO_HOST=<%= fetch(:nuxt3_ssr_host) %>
 Environment=NITRO_PORT=<%= fetch(:nuxt3_ssr_port) %>
 Environment=HOST=<%= fetch(:nuxt3_ssr_host) %>
 Environment=PORT=<%= fetch(:nuxt3_ssr_port) %>
 <%= fetch(:nuxt3_ssr_env, {}).map { |k, v| "Environment=#{k}=#{v}" }.join("\n") %>
+
+# Per-instance runtime ENV (NUXT_PUBLIC_*, server-only secrets) — uploaded by
+# `nuxt3:ssr:upload_env` from the consuming app's config/nuxt_env/<stage>.env.
+# Leading '-' = optional: a missing file is NOT an error (zero-config-safe).
+# Loaded AFTER the static Environment= lines above, so file values win. (Contract §4.2)
+EnvironmentFile=-<%= shared_path %>/config/<%= fetch(:nuxt3_ssr_env_file) %>
 
 # nvm-activated node, same bash -lc pattern as the build tasks.
 ExecStart=/bin/bash -lc '<%= nuxt3_nvm_prefix %> && exec node <%= shared_path %>/<%= fetch(:nuxt3_output_folder) %>/server/index.mjs'

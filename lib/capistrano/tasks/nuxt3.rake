@@ -30,6 +30,28 @@ namespace :load do
     ## Maybe nonsense .. builds `APP_NAME_STG_DEPLOY_MODE`
     set :nuxt3_stage_env_var,     -> { build_deploy_env_var }
 
+    # === Runtime ENV file (G1, Contract §4.2) ===
+    # Per-instance ENV is uploaded from the consuming app and lives ONLY on the
+    # server (gitignored locally). One code build → many instances, values at
+    # runtime. Secrets/customer values belong here, NEVER in :nuxt3_ssr_env (repo).
+    #   LOCAL  : config/nuxt_env/<stage>.env   (KEY=value per line, gitignored)
+    #   SERVER : shared/config/nuxt3_ssr.env   (rsync target, linked_file, EnvironmentFile=-)
+    set :nuxt3_ssr_env_file,      -> { "nuxt3_ssr.env" }
+    set :nuxt3_ssr_env_local,     -> { "config/nuxt_env/#{fetch(:stage)}.env" }
+    # Upload the ENV file automatically on `deploy:starting` (like keys:upload_config).
+    set :nuxt3_ssr_upload_env_on_deploy, -> { true }
+
+    # === Neutral deploy-mode var (G3/G12, Contract §4.3) ===
+    # Replaces the old build_deploy_env_var (`APP_NAME_STG_DEPLOY_MODE`) construct.
+    # Injected into the build AND sourced at runtime so prerendered pages and the
+    # live service never diverge. ValidSlots maps SLOTS_DEPLOY_MODE onto this.
+    set :nuxt3_app_env,           -> { fetch(:stage).to_s }
+
+    # === Health-check (G5, Contract §5) ===
+    set :nuxt3_ssr_verify_path,   -> { "/" }
+    set :nuxt3_ssr_verify_retries, -> { 10 }
+    set :nuxt3_ssr_verify_sleep,  -> { 2 }
+
     # === SSR (Nitro Node service) ===
     set :nuxt3_ssr_roles,         -> { :app }
     set :nuxt3_ssr_service_file,  -> { "#{fetch(:application)}_#{fetch(:stage)}_nuxt3_ssr" }
@@ -54,6 +76,8 @@ namespace :load do
     set :nuxt3_static_hooks,      -> { true }
 
     append :linked_files, fetch(:nuxt3_stat_file), fetch(:nuxt3_logs_file), fetch(:nuxt3_done_file)
+    # Runtime ENV file lives under shared/config/ — linked so the release sees it too (G1).
+    append :linked_files, "config/#{fetch(:nuxt3_ssr_env_file)}"
     append :linked_dirs, 'node_modules'
 
   end
@@ -66,8 +90,10 @@ namespace :nuxt3 do
   task :output_env do
     on roles(fetch(:nuxt3_app_roles)) do
       puts "🔧 Nuxt 3 stage: #{fetch(:stage)}"
-      puts "🔧 Nuxt 3 deploy mode: #{fetch(:nuxt3_stage_env_var)}"
+      puts "🔧 Nuxt 3 NUXT_APP_ENV: #{fetch(:nuxt3_app_env)}"
+      puts "🔧 Nuxt 3 legacy deploy-mode var (deprecated): #{fetch(:nuxt3_stage_env_var)}"
       puts "🔧 Nuxt 3 SSR upstream: #{fetch(:nuxt3_ssr_host)}:#{fetch(:nuxt3_ssr_port)}"
+      puts "🔧 Nuxt 3 SSR ENV file: #{nuxt3_remote_env_file}"
     end
   end
 
@@ -75,22 +101,24 @@ namespace :nuxt3 do
   task :install_dependencies do
     on roles(fetch(:nuxt3_app_roles)) do
       within release_path do
-        execute :echo, "'installing|deploy' > #{shared_path}/#{fetch(:nuxt3_stat_file)}"
-        execute :rm, "-rf node_modules/*"
-        execute :rm, "-rf #{shared_path}/node_modules/*"
-        # npm ci wenn ein package-lock.json im Release liegt (exakter, deterministischer
-        # Lockfile-Baum) — installiert jedes (genestete) Paket mit SEINEM passenden
-        # Plattform-Binary und verhindert so esbuild/rollup "Expected X but got Y" beim
-        # Hoisting divergierender Versionen. Sonst (kein Lockfile) npm install. Override
-        # erzwingbar via set :nuxt3_npm_install_cmd, "ci"|"install".
-        npm_cmd = fetch(:nuxt3_npm_install_cmd) do
-          test("[ -f #{release_path}/package-lock.json ]") ? "ci" : "install"
-        end
-        if fetch(:nuxt3_use_nvm, false)
-          env_vars = fetch(:default_env).map { |k, v| "#{k}=#{v}" }.join(" ")
-          execute %(bash -lc '#{nuxt3_nvm_prefix} && cd #{release_path} && env #{env_vars} npm #{npm_cmd}')
-        else
-          execute :npm, npm_cmd
+        write_nuxt3_state("installing")
+        with_nuxt3_error_state("install_dependencies") do
+          execute :rm, "-rf node_modules/*"
+          execute :rm, "-rf #{shared_path}/node_modules/*"
+          # npm ci wenn ein package-lock.json im Release liegt (exakter, deterministischer
+          # Lockfile-Baum) — installiert jedes (genestete) Paket mit SEINEM passenden
+          # Plattform-Binary und verhindert so esbuild/rollup "Expected X but got Y" beim
+          # Hoisting divergierender Versionen. Sonst (kein Lockfile) npm install. Override
+          # erzwingbar via set :nuxt3_npm_install_cmd, "ci"|"install".
+          npm_cmd = fetch(:nuxt3_npm_install_cmd) do
+            test("[ -f #{release_path}/package-lock.json ]") ? "ci" : "install"
+          end
+          if fetch(:nuxt3_use_nvm, false)
+            env_vars = fetch(:default_env).map { |k, v| "#{k}=#{v}" }.join(" ")
+            execute %(bash -lc '#{nuxt3_nvm_prefix} && cd #{release_path} && env #{env_vars} npm #{npm_cmd}')
+          else
+            execute :npm, npm_cmd
+          end
         end
       end
     end
@@ -101,12 +129,18 @@ namespace :nuxt3 do
   task :build do
     on roles(fetch(:nuxt3_app_roles)) do
       within release_path do
-        execute :echo, "'building|deploy' > #{shared_path}/#{fetch(:nuxt3_stat_file)}"
-        if fetch(:nuxt3_use_nvm, false)
-          env_vars = fetch(:default_env).map { |k, v| "#{k}=#{v}" }.join(" ")
-          execute %(bash -lc '#{nuxt3_nvm_prefix} && cd #{release_path} && env #{env_vars} ./node_modules/.bin/nuxt build')
-        else
-          execute :npm, "run build"
+        write_nuxt3_state("building")
+        log_file = "#{shared_path}/#{fetch(:nuxt3_logs_file)}"
+        execute :echo, "'Deploy - Build - LOGS :: #{ Time.now.strftime("%d.%m.%Y - %H:%M") } ::' > #{log_file}"
+        with_nuxt3_error_state("build") do
+          if fetch(:nuxt3_use_nvm, false)
+            env_vars = fetch(:default_env).map { |k, v| "#{k}=#{v}" }.join(" ")
+            # G3: source the runtime ENV file (build-ENV = runtime-ENV) + NUXT_APP_ENV,
+            # and tee the build output into _builded_logs (was missing in the nvm branch).
+            execute %(bash -lc '#{nuxt3_nvm_prefix} && #{nuxt3_build_env_source} && export #{nuxt3_app_env_assignment} && cd #{release_path} && env #{env_vars} ./node_modules/.bin/nuxt build 2>&1 | tee -a #{log_file}')
+          else
+            execute :npm, "run build 2>&1 | tee -a #{log_file}"
+          end
         end
       end
     end
@@ -117,13 +151,17 @@ namespace :nuxt3 do
   task :generate do
     on roles(fetch(:nuxt3_app_roles)) do
       within release_path do
-        execute :echo, "'generating|deploy' > #{shared_path}/#{fetch(:nuxt3_stat_file)}"
-        execute :echo, "'Deploy - Render - LOGS :: #{ Time.now.strftime("%d.%m.%Y - %H:%M") } ::' > #{shared_path}/#{fetch(:nuxt3_logs_file)}"
-        if fetch(:nuxt3_use_nvm, false)
-          env_vars = fetch(:default_env).map { |k, v| "#{k}=#{v}" }.join(" ")
-          execute %(bash -lc '#{nuxt3_nvm_prefix} && cd #{release_path} && env #{env_vars} ./node_modules/.bin/nuxt generate')
-        else
-          execute :npm, "run generate 2>&1 | tee -a #{shared_path}/#{fetch(:nuxt3_logs_file)}"
+        write_nuxt3_state("generating")
+        log_file = "#{shared_path}/#{fetch(:nuxt3_logs_file)}"
+        execute :echo, "'Deploy - Render - LOGS :: #{ Time.now.strftime("%d.%m.%Y - %H:%M") } ::' > #{log_file}"
+        with_nuxt3_error_state("generate") do
+          if fetch(:nuxt3_use_nvm, false)
+            env_vars = fetch(:default_env).map { |k, v| "#{k}=#{v}" }.join(" ")
+            # G3: same single-source ENV + tee fix as :build (the nvm branch logged nothing before).
+            execute %(bash -lc '#{nuxt3_nvm_prefix} && #{nuxt3_build_env_source} && export #{nuxt3_app_env_assignment} && cd #{release_path} && env #{env_vars} ./node_modules/.bin/nuxt generate 2>&1 | tee -a #{log_file}')
+          else
+            execute :npm, "run generate 2>&1 | tee -a #{log_file}"
+          end
         end
       end
     end
@@ -133,9 +171,13 @@ namespace :nuxt3 do
   desc "Sync full .output/ to shared (for SSR / Nitro service)"
   task :sync_output do
     on roles(fetch(:nuxt3_app_roles)) do
-      execute :echo, "'syncing|deploy' > #{shared_path}/#{fetch(:nuxt3_stat_file)}"
-      execute :rsync, "-a --delete #{release_path}/#{fetch(:nuxt3_build_dir)}/ #{shared_path}/#{fetch(:nuxt3_output_folder)}/"
-      execute :echo, "'success|deploy' > #{shared_path}/#{fetch(:nuxt3_stat_file)}"
+      write_nuxt3_state("syncing")
+      with_nuxt3_error_state("sync_output") do
+        execute :rsync, "-a --delete #{release_path}/#{fetch(:nuxt3_build_dir)}/ #{shared_path}/#{fetch(:nuxt3_output_folder)}/"
+      end
+      # NOTE: in the SSR path 'success' is written by ssr:restart AFTER the
+      # service is healthy; here we only mark the sync done + touch the
+      # "last build" marker. (Static path writes 'success' in sync_static.)
       execute :touch, "#{shared_path}/#{fetch(:nuxt3_done_file)}"
     end
   end
@@ -144,9 +186,12 @@ namespace :nuxt3 do
   desc "Sync static .output/public/ to shared www (for nginx static serving)"
   task :sync_static do
     on roles(fetch(:nuxt3_app_roles)) do
-      execute :echo, "'syncing|deploy' > #{shared_path}/#{fetch(:nuxt3_stat_file)}"
-      execute :rsync, "-a --delete #{release_path}/#{fetch(:nuxt3_build_dir)}/public/ #{shared_path}/www/"
-      execute :echo, "'success|deploy' > #{shared_path}/#{fetch(:nuxt3_stat_file)}"
+      write_nuxt3_state("syncing")
+      with_nuxt3_error_state("sync_static") do
+        execute :rsync, "-a --delete #{release_path}/#{fetch(:nuxt3_build_dir)}/public/ #{shared_path}/www/"
+      end
+      # Static mode has no service to restart → the rsync IS the go-live.
+      write_nuxt3_state("success")
       execute :touch, "#{shared_path}/#{fetch(:nuxt3_done_file)}"
     end
   end
@@ -167,9 +212,13 @@ namespace :nuxt3 do
       ensure_shared_log_path
       ensure_shared_output_path
       ensure_shared_pids_path
+      ensure_shared_config_path
       execute :touch, "#{shared_path}/#{fetch(:nuxt3_stat_file)}"
       execute :touch, "#{shared_path}/#{fetch(:nuxt3_logs_file)}"
       execute :touch, "#{shared_path}/#{fetch(:nuxt3_done_file)}"
+      # Ensure the linked ENV file target exists so the symlink + EnvironmentFile=-
+      # never dangle on a first deploy (empty file = zero-config-safe).
+      execute :touch, nuxt3_remote_env_file
     end
   end
 
@@ -258,13 +307,105 @@ namespace :nuxt3 do
       invoke "nuxt3:ssr:configure"
     end
 
-    %w[start stop restart enable disable is-enabled].each do |command|
+    # `restart` is defined explicitly below (it writes the restarting|deploy
+    # state + runs the health-check), so it is excluded from the generic loop.
+    %w[start stop enable disable is-enabled].each do |command|
       desc "#{command.capitalize} Nuxt 3 SSR service"
       task command.gsub(/-/, '_') do
         on roles fetch(:nuxt3_ssr_roles) do
-          ensure_shared_pids_path if %w[start restart enable].include?(command)
+          ensure_shared_pids_path if %w[start enable].include?(command)
           execute :sudo, :systemctl, command, fetch(:nuxt3_ssr_service_file)
         end
+      end
+    end
+
+    # === G1: per-instance runtime ENV file (Contract §4.2, keys-pattern) ===
+
+    desc "Upload local config/nuxt_env/<stage>.env → shared/config/nuxt3_ssr.env"
+    task :upload_env do
+      on roles fetch(:nuxt3_ssr_roles) do
+        local = fetch(:nuxt3_ssr_env_local)
+        remote = nuxt3_remote_env_file
+        ensure_shared_config_path
+        unless File.exist?(local)
+          # zero-config-safe: nothing to upload (EnvironmentFile=- tolerates a
+          # missing/empty file). Warn, don't fail — matches keys:check_keys tone.
+          # Touch the target anyway so the linked_file symlink + deploy:check
+          # never dangle on a first deploy with no local ENV file.
+          execute :touch, remote
+          warn "⚠️  No local ENV file at #{local} — touched empty #{remote} (service uses unit ENV only)."
+          next
+        end
+        puts "📤 Syncing SSR ENV: #{local} → #{remote}"
+        remote_target = "#{host.user}@#{host.hostname}:#{remote}"
+        run_locally { execute "rsync -av #{local} #{remote_target}" }
+      end
+    end
+
+    desc "Warn if the SSR runtime ENV file is empty or missing"
+    task :check_env do
+      on roles fetch(:nuxt3_ssr_roles) do
+        remote = nuxt3_remote_env_file
+        if test("[ -s #{remote} ]")
+          puts "✅ SSR ENV file present: #{remote}"
+        else
+          puts "⚠️  WARNING: SSR ENV file #{remote} is empty or missing!"
+          puts "    Provide config/#{fetch(:nuxt3_ssr_env_local).split('/').last} locally and run nuxt3:ssr:upload_env,"
+          puts "    or rely on unit Environment= lines only (NUXT_PUBLIC_*/secrets won't be set)."
+        end
+      end
+    end
+
+    # === G5: health-check after restart (Contract §5) ===
+
+    desc "Health-check the Nitro SSR service (curl 127.0.0.1:<port> with retry)"
+    task :verify do
+      on roles fetch(:nuxt3_ssr_roles) do
+        url = "http://#{fetch(:nuxt3_ssr_host)}:#{fetch(:nuxt3_ssr_port)}#{fetch(:nuxt3_ssr_verify_path)}"
+        retries = fetch(:nuxt3_ssr_verify_retries).to_i
+        pause = fetch(:nuxt3_ssr_verify_sleep).to_i
+        info "🩺 Verifying SSR service at #{url} (#{retries} tries, #{pause}s apart)…"
+        ok = false
+        retries.times do |i|
+          # -sf: silent + fail (non-2xx ⇒ non-zero exit); -o /dev/null: drop body;
+          # --max-time guards against a hung socket. `test` swallows the non-zero.
+          if test("curl -sf -o /dev/null --max-time 5 #{url}")
+            ok = true
+            info "✅ SSR service healthy after #{i + 1} attempt(s)."
+            break
+          end
+          sleep pause
+        end
+        unless ok
+          write_nuxt3_state("ERROR-verify")
+          execute :sudo, "journalctl -u #{fetch(:nuxt3_ssr_service_file)} -rn 40 --no-pager || true"
+          raise "❌ SSR health-check failed: #{url} did not respond OK after #{retries} attempts."
+        end
+      end
+    end
+
+    # === G2 + G4 + G5: restart with state + first-deploy autodetect + verify ===
+
+    desc "Restart the Nitro SSR service (autodetect first deploy, write state, verify)"
+    task :restart do
+      on roles fetch(:nuxt3_ssr_roles) do
+        ensure_shared_pids_path
+        # G4: first-deploy ergonomics — if the unit doesn't exist yet, configure
+        # it (upload + enable + start) instead of restarting a non-existent unit.
+        # Removes the old `nuxt3_ssr_hooks=false` dance for the very first deploy.
+        unless test("systemctl cat #{fetch(:nuxt3_ssr_service_file)} > /dev/null 2>&1")
+          info "ℹ️  systemd unit #{fetch(:nuxt3_ssr_service_file)} not found — running ssr:configure (first deploy)."
+          invoke "nuxt3:ssr:configure"
+        else
+          write_nuxt3_state("restarting")
+          execute :sudo, :systemctl, "restart", fetch(:nuxt3_ssr_service_file)
+        end
+      end
+      # G5: health-check after (re)start — fail loudly instead of silently broken.
+      invoke "nuxt3:ssr:verify"
+      # Only now is the deploy truly live → write success.
+      on roles fetch(:nuxt3_ssr_roles) do
+        write_nuxt3_state("success")
       end
     end
 
@@ -310,18 +451,25 @@ namespace :nuxt3 do
 end
 
 namespace :deploy do
+  # G1: keep the per-instance runtime ENV file fresh on every deploy (like
+  # keys:upload_config). Opt-out via `set :nuxt3_ssr_upload_env_on_deploy, false`.
+  before :starting, :upload_nuxt3_ssr_env do
+    if fetch(:nuxt3_deploy_mode) != :static && fetch(:nuxt3_ssr_upload_env_on_deploy)
+      invoke "nuxt3:ssr:upload_env"
+    end
+  end
+
   after 'deploy:published', :rebuild_nuxt3_app do
     if fetch(:nuxt3_deploy_mode) == :static
       # Static: no node service, so the build+sync is the whole story.
       invoke "nuxt3:rebuild_static" if fetch(:nuxt3_static_hooks)
     else
-      # SSR: always build+sync .output, but only auto-restart the Nitro
-      # service when hooks are on. On the FIRST deploy the systemd unit does
-      # not exist yet → a bare `ssr:restart` would fail. Set
-      # `nuxt3_ssr_hooks=false` for the first deploy, then run
-      # `cap <stage> nuxt3:ssr:configure` (uploads + enables + starts the unit
-      # against the just-synced output), then flip `nuxt3_ssr_hooks=true` so
-      # subsequent deploys restart cleanly. Same pattern as puma/sidekiq hooks.
+      # SSR: build+sync .output, then restart the Nitro service. Since G4,
+      # ssr:restart AUTODETECTS a missing unit and runs ssr:configure on the
+      # first deploy, so the old `nuxt3_ssr_hooks=false` first-deploy dance is
+      # no longer required. The flag is kept ONLY as an escape hatch to skip the
+      # restart entirely (e.g. build-only on a host where the service is managed
+      # out-of-band). Same hook position as puma/sidekiq.
       if fetch(:nuxt3_ssr_hooks)
         invoke "nuxt3:rebuild_app"
       else
@@ -337,4 +485,6 @@ end
 desc 'Server setup tasks'
 task :setup do
   invoke 'nuxt3:setup_app'
+  # G1: seed the runtime ENV file at setup time (no-op-safe if absent locally).
+  invoke 'nuxt3:ssr:upload_env' if fetch(:nuxt3_deploy_mode) != :static
 end
