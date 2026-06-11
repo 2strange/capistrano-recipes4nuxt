@@ -283,11 +283,11 @@ Bestehendes (zero-config-safe).
 
 | # | Gap | Prio | A2? | Aufwand |
 |---|---|---|---|---|
-| G1 | **ENV-File-Kontrakt**: `EnvironmentFile=-…/nuxt3_ssr.env` ins Unit-Template + Tasks `nuxt3:ssr:upload_env` / `check_env` (keys-Muster, §4.2) | **P0** | | M |
-| G2 | **Flag-File-Vervollständigung SSR**: States `restarting\|deploy`, `purging\|admin-interface`; `ERROR-<task>\|deploy` bei Task-Fehlschlag (Fehler-Sichtbarkeit in der Admin-UI) | **P0** | (Teil) | S |
-| G3 | **Build-Logs + Build-ENV**: `nuxt build` loggt heute NICHT nach `_builded_logs` (nur `generate`, und auch dort fehlt das `tee` im nvm-Zweig — Bug); Build-Tasks sourcen das ENV-File (§4.3) | **P0** | | S–M |
-| G4 | **Erst-Deploy-Ergonomie**: Hook prüft `systemctl cat <unit>` — Unit fehlt → automatisch `ssr:configure` statt Restart; `nuxt3_ssr_hooks=false`-Tanz entfällt | **P0** | | S |
-| G5 | **Health-Check** `nuxt3:ssr:verify` nach Restart (curl `127.0.0.1:<port>` mit Retry, Deploy schlägt fehl statt still kaputt); ans Hook-Ende | **P0** | | S |
+| G1 | **ENV-File-Kontrakt**: `EnvironmentFile=-…/nuxt3_ssr.env` ins Unit-Template + Tasks `nuxt3:ssr:upload_env` / `check_env` (keys-Muster, §4.2) — **✅ Etappe 1 gebaut (feat/ssr-1.0)** | **P0** | | M |
+| G2 | **Flag-File-Vervollständigung SSR**: States `restarting\|deploy`, `purging\|admin-interface`; `ERROR-<task>\|deploy` bei Task-Fehlschlag (Fehler-Sichtbarkeit in der Admin-UI) — **✅ Etappe 1 gebaut (feat/ssr-1.0)** (`restarting`+`ERROR-<task>`+`success`-Neuverortung; `purging\|admin-interface` = Etappe 2/A2) | **P0** | (Teil) | S |
+| G3 | **Build-Logs + Build-ENV**: `nuxt build` loggt heute NICHT nach `_builded_logs` (nur `generate`, und auch dort fehlt das `tee` im nvm-Zweig — Bug); Build-Tasks sourcen das ENV-File (§4.3) — **✅ Etappe 1 gebaut (feat/ssr-1.0)** | **P0** | | S–M |
+| G4 | **Erst-Deploy-Ergonomie**: Hook prüft `systemctl cat <unit>` — Unit fehlt → automatisch `ssr:configure` statt Restart; `nuxt3_ssr_hooks=false`-Tanz entfällt — **✅ Etappe 1 gebaut (feat/ssr-1.0)** | **P0** | | S |
+| G5 | **Health-Check** `nuxt3:ssr:verify` nach Restart (curl `127.0.0.1:<port>` mit Retry, Deploy schlägt fehl statt still kaputt); ans Hook-Ende — **✅ Etappe 1 gebaut (feat/ssr-1.0)** | **P0** | | S |
 | G14 | **Content-Refresh-Mechanik (A2)**: FE-seitig interner Purge-Endpoint + `swr`-routeRules (FE/Layer-Revier); Gem-Seite klein — Purge-Konvention dokumentieren, ENV/Port-Kontrakt für den Endpoint sichern (kein Cache-Driver-Mount nötig, da A2 prozess-intern). Blockt den slots-Admin-Trigger. | **P0** | **✅ A2** | M (klein gem-seitig) |
 | G15 | **Purge-Smoke-Test + Nitro-Version-Pin (A2-Auflage, Austin 2026-06-11)**: routeRules-`swr`-Cache hat **kein First-Class-Invalidierungs-API** (nuxt#20495); Purge über Storage-Key-Prefix `nitro:routeRules` ist **internes/undokumentiertes** Verhalten → **Pflicht:** Pin auf getestete Nitro-Version **+** Smoke-Test, der den Purge real verifiziert. **Nicht optional** — Bestandteil der 1.0-Freigabe. | **P0** | **✅ A2** | S–M |
 | G9 | **Tests (Dexter)**: Specs für Task-Verkabelung + ERB-Template-Rendering (Unit-File mit/ohne ENV-File, nvm an/aus) | **P1** | | M |
@@ -560,15 +560,17 @@ zwischen Klicks). Beide hielten den Admin-Trigger funktionell (Q2 erfüllt) — 
 > Kern-SSR-Deploy-Pfad lauffähig + verifizierbar, dann Content-Refresh (A2), dann Härtung,
 > dann die Freigabe-Bedingung (Voll-Parität + realer Deploy).
 
-**Etappe 1 — Kern-Deploy lauffähig (P0, Gem-only, Cargo):**
-1. **G1** ENV-File-Kontrakt (`EnvironmentFile=-…` ins Unit-Template + `ssr:upload_env`/`check_env`).
+**Etappe 1 — Kern-Deploy lauffähig (P0, Gem-only, Cargo):** ✅ **GEBAUT auf `feat/ssr-1.0`
+(2026-06-11, Cargo).** Code + Unit-/Render-Smoke grün (`ruby -c` + `test/ssr_template_smoke_test.rb`
++ `test/nuxt3_tasks_wiring_test.rb`). Echter Deploy-Verify steht noch aus (Robert, moja-Testbett).
+1. **G1** ✅ ENV-File-Kontrakt (`EnvironmentFile=-…` ins Unit-Template + `ssr:upload_env`/`check_env`).
    Zuerst, weil alle folgenden Tasks die Laufzeit-ENV brauchen.
-2. **G3** Build-ENV-Sourcing + Build-Logs-Fix (`tee`-Bug im nvm-Zweig) — Build muss sauber loggen,
+2. **G3** ✅ Build-ENV-Sourcing + Build-Logs-Fix (`tee`-Bug im nvm-Zweig) — Build muss sauber loggen,
    bevor man Fehler debuggt.
-3. **G2** Flag-States vervollständigen (`restarting|deploy`, `ERROR-<task>|deploy`,
-   `purging|admin-interface`) — Sichtbarkeit für alles Weitere.
-4. **G4** Erst-Deploy-Ergonomie (Unit-Autodetect statt `nuxt3_ssr_hooks=false`-Tanz).
-5. **G5** Health-Check `ssr:verify` nach Restart — ab hier schlägt ein kaputter Deploy laut fehl.
+3. **G2** ✅ Flag-States vervollständigen (`restarting|deploy`, `ERROR-<task>|deploy`;
+   `purging|admin-interface` kommt mit A2/Etappe 2) — Sichtbarkeit für alles Weitere.
+4. **G4** ✅ Erst-Deploy-Ergonomie (Unit-Autodetect statt `nuxt3_ssr_hooks=false`-Tanz).
+5. **G5** ✅ Health-Check `ssr:verify` nach Restart — ab hier schlägt ein kaputter Deploy laut fehl.
 
 **Etappe 2 — Content-Refresh A2 (P0, FE/BE + kleine Gem-Konvention):**
 6. **G14 (A2)** FE: `swr`-routeRules + interner Purge-Endpoint (Luke/Layer); BE: Worker-Innenleben
