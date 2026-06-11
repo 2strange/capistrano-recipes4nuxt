@@ -41,6 +41,18 @@ namespace :load do
     set :nginx_proxy_log_folder,  -> { "/var/log/nginx" } # Standard Nginx log folder for proxy
     set :nginx_proxy_hooks,       -> { true }
 
+    # === Q5 Restart-Gap-Weichmacher (Contract §1.2) =========================
+    # When the upstream (Nitro SSR / Rails) is mid-`systemctl restart`, nginx
+    # gets a transient connect-error/502 for a second. These directives make
+    # nginx silently retry the upstream instead of passing the error to the
+    # client. Conditions are IDEMPOTENT/safe retries only (connect error,
+    # timeout, 502/503) — a GET that never reached app code, so re-trying it
+    # cannot double-execute a side effect. Harmless for the :static/Rails proxy
+    # path too (same idempotent conditions). Override per stage if needed.
+    set :nginx_proxy_next_upstream,         -> { "error timeout http_502 http_503" }
+    set :nginx_proxy_next_upstream_tries,   -> { 2 }   # 1 retry past the first try
+    set :nginx_proxy_next_upstream_timeout, -> { "5s" } # cap total time across tries
+
 
     # Upstream App Server (where the App-Nginx runs)
     # WICHTIG: Diese in config/deploy/<stage>.rb setzen!

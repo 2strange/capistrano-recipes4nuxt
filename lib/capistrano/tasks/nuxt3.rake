@@ -59,10 +59,30 @@ namespace :load do
     set :nuxt3_systemd_path,      -> { "/lib/systemd/system" }
     set :nuxt3_pid_path,          -> { "#{shared_path}/pids" }
     set :nuxt3_ssr_user,          -> { fetch(:user, 'deploy') }
+    # === SSR bind host (G16, Contract §4.5) ===
+    # The interface Nitro (NITRO_HOST/HOST) binds to.
+    #   Single-Host  (Proxy + App on the SAME box)  → "127.0.0.1"  (default, safe)
+    #   Cross-Host   (Proxy on ANOTHER box, recipes2go/proxy_nginx pattern)
+    #                                                → set :nuxt3_ssr_host, "0.0.0.0"
+    #                                                  (or the App-LXC LAN IP)
+    # ⚠️ SECURITY (mandatory when host = 0.0.0.0): the App box MUST firewall the
+    #    SSR port (:nuxt3_ssr_port, default 3500) down to the proxy/Tailnet only —
+    #    otherwise the bare Nitro process is exposed on the LAN. There is NO
+    #    App-Nginx in front of Nitro in the SSR path (unlike recipes2go puma/thin,
+    #    where the App-Nginx fronts a unix socket), so the gem cannot do this for
+    #    you. Use recipes2go `ufw` (Capfile: require 'capistrano/recipes2go/ufw';
+    #    set :ufw_additional_ports, [<port>]) or an explicit per-source rule
+    #    `ufw allow from <proxy-ip> to any port <port>`. See Contract §4.5 / G16.
     set :nuxt3_ssr_host,          -> { "127.0.0.1" }
     # PLACEHOLDER default – override per stage (analog :nginx_upstream_port).
     # Point the proxy here:  set :nginx_upstream_port, fetch(:nuxt3_ssr_port)
     set :nuxt3_ssr_port,          -> { 3500 }
+    # Health-check target (G5/G16): the verify curl runs LOCALLY on the App box,
+    # so it always hits loopback — decoupled from the bind host on purpose. Keep
+    # this 127.0.0.1 even when :nuxt3_ssr_host is 0.0.0.0 (curling 0.0.0.0 is
+    # unportable/undefined as a client target). Override only if Nitro binds a
+    # specific LAN IP that loopback can't reach (rare).
+    set :nuxt3_ssr_healthcheck_host, -> { "127.0.0.1" }
     # Extra `Environment=` lines for the unit, e.g. { "API_BASE" => "https://..." }
     set :nuxt3_ssr_env,           -> { {} }
     set :nuxt3_ssr_log_lines,     -> { 100 }
@@ -92,7 +112,11 @@ namespace :nuxt3 do
       puts "🔧 Nuxt 3 stage: #{fetch(:stage)}"
       puts "🔧 Nuxt 3 NUXT_APP_ENV: #{fetch(:nuxt3_app_env)}"
       puts "🔧 Nuxt 3 legacy deploy-mode var (deprecated): #{fetch(:nuxt3_stage_env_var)}"
-      puts "🔧 Nuxt 3 SSR upstream: #{fetch(:nuxt3_ssr_host)}:#{fetch(:nuxt3_ssr_port)}"
+      puts "🔧 Nuxt 3 SSR bind:     #{fetch(:nuxt3_ssr_host)}:#{fetch(:nuxt3_ssr_port)}"
+      puts "🔧 Nuxt 3 SSR healthchk: #{fetch(:nuxt3_ssr_healthcheck_host)}:#{fetch(:nuxt3_ssr_port)}"
+      if fetch(:nuxt3_ssr_host).to_s != "127.0.0.1"
+        puts "⚠️  Nuxt 3 SSR binds non-loopback (#{fetch(:nuxt3_ssr_host)}) — firewall #{fetch(:nuxt3_ssr_port)} to the proxy/Tailnet (Contract §4.5/G16)."
+      end
       puts "🔧 Nuxt 3 SSR ENV file: #{nuxt3_remote_env_file}"
     end
   end
@@ -358,10 +382,13 @@ namespace :nuxt3 do
 
     # === G5: health-check after restart (Contract §5) ===
 
-    desc "Health-check the Nitro SSR service (curl 127.0.0.1:<port> with retry)"
+    desc "Health-check the Nitro SSR service (curl <healthcheck_host>:<port> with retry)"
     task :verify do
       on roles fetch(:nuxt3_ssr_roles) do
-        url = "http://#{fetch(:nuxt3_ssr_host)}:#{fetch(:nuxt3_ssr_port)}#{fetch(:nuxt3_ssr_verify_path)}"
+        # G16: curl the dedicated healthcheck host (default 127.0.0.1), NOT the
+        # bind host — the check runs locally on the App box, so loopback is
+        # always correct even when Nitro binds 0.0.0.0 for a cross-host proxy.
+        url = "http://#{fetch(:nuxt3_ssr_healthcheck_host)}:#{fetch(:nuxt3_ssr_port)}#{fetch(:nuxt3_ssr_verify_path)}"
         retries = fetch(:nuxt3_ssr_verify_retries).to_i
         pause = fetch(:nuxt3_ssr_verify_sleep).to_i
         info "🩺 Verifying SSR service at #{url} (#{retries} tries, #{pause}s apart)…"

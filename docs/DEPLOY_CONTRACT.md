@@ -78,6 +78,23 @@ einem Sekunden-Restart fällt das real praktisch nie auf. **Echtes** Zero-Downti
 (Port-Flip: zwei Units A/B + nginx-Upstream-Switch, oder Socket-Activation) ist damit bewusst
 **post-1.0 / Gap G7** und kein 1.0-Blocker.
 
+**✅ Umgesetzt GEM-seitig (feat/ssr-1.0, 2026-06-11):** Der Weichmacher steht jetzt im
+`templates/nginx_proxy_conf.erb` (im `location /`-Block), nicht mehr manuell pro App. Defaults
+(zero-config, via `fetch(:..., default)` überschreibbar):
+
+```ruby
+set :nginx_proxy_next_upstream,         "error timeout http_502 http_503"  # Default
+set :nginx_proxy_next_upstream_tries,   2                                  # Default
+set :nginx_proxy_next_upstream_timeout, "5s"                               # Default
+```
+
+Die Bedingungen sind bewusst **idempotent/sicher** (connect-error, timeout, 502/503) — der
+Request hat in diesen Fällen den App-Code nie erreicht, ein Retry kann also keinen Seiteneffekt
+doppelt auslösen. Damit ist der Weichmacher **auch für den `:static`/Rails-Proxy-Fall harmlos**
+(gleiches Template, gleiche idempotenten Bedingungen — kein Verhalten verschlechtert; konkret
+**KEIN** `non_idempotent` und **KEIN** `http_500/http_504` in den Defaults). Leerstring/`nil` für
+`:nginx_proxy_next_upstream` lässt den Block komplett weg (Opt-out).
+
 ### 1.3 Static-Mode bleibt
 
 `set :nuxt3_deploy_mode, :static` (Content-Sites): `nuxi generate` → `shared/www/` → nginx,
@@ -265,6 +282,50 @@ Box:
 passenden nginx-Upstream). Zwei Instanzen auf demselben Port → die zweite Unit startet nicht
 (`EADDRINUSE`).
 
+### 4.5 Bind-Host: Single-Host vs. Cross-Host-Proxy (G16, ⚠️ Firewall-Pflicht)
+
+> ✅ **Umgesetzt GEM-seitig (feat/ssr-1.0, 2026-06-11, Cargo).** Aufgedeckt vom moja-Testbett
+> (Robert): moja deployt im **Cross-Host-Proxy-Setup** — öffentlicher Proxy-LXC proxyt auf eine
+> **andere** App-LXC (Nitro). Der bisherige Default `nuxt3_ssr_host = 127.0.0.1` ist dort
+> cross-host **unerreichbar**.
+
+Nitro bindet `NITRO_HOST`/`HOST` = `fetch(:nuxt3_ssr_host)`. Es gibt **zwei Topologien**:
+
+| Topologie | Wer ist der Proxy | `:nuxt3_ssr_host` | Begründung |
+|---|---|---|---|
+| **Single-Host** | Proxy + App auf **derselben** Box | **`127.0.0.1`** (Default — NICHT ändern) | Proxy erreicht Nitro über Loopback; sicherster Default, Port nie im LAN sichtbar |
+| **Cross-Host** | Proxy auf **anderer** Box (recipes2go/`proxy_nginx`-Muster) | **`0.0.0.0`** (oder die App-LAN-IP) | Loopback ist von der Proxy-Box nicht erreichbar → Nitro muss auf allen Interfaces (bzw. der LAN-IP) lauschen |
+
+```ruby
+# Cross-Host-Setup (Proxy auf anderer Box):
+set :nuxt3_ssr_host, "0.0.0.0"     # Nitro auf allen Interfaces
+# (Single-Host: nichts setzen → bleibt 127.0.0.1)
+```
+
+⚠️ **SICHERHEITS-AUFLAGE (Pflicht, wenn `nuxt3_ssr_host = 0.0.0.0`):** Lauscht Nitro auf
+`0.0.0.0`, ist der **rohe Node-Prozess offen im LAN** — anders als bei recipes2go puma/thin gibt
+es **keinen App-Nginx vor Nitro** (dort fronten App-Nginx + unix-Socket den App-Prozess, hier
+spricht der Proxy direkt mit dem Nitro-TCP-Port). Die App-LXC **MUSS** daher den SSR-Port
+(`:nuxt3_ssr_port`, Default 3500) per Firewall auf die **Proxy-IP / das Tailnet** beschränken.
+**Etabliertes Muster = recipes2go `ufw`** (`lib/capistrano/tasks/ufw.rake`,
+`docs/ufw.md`; analog zu „App-Server: nur der `nginx_upstream_port` muss vom Proxy aus erreichbar
+sein", recipes2go `proxy_nginx.md` §7):
+
+```ruby
+# Capfile:
+require 'capistrano/recipes2go/ufw'
+# config/deploy/<stage>.rb (App-LXC):
+set :ufw_additional_ports, [3500]          # öffnet den SSR-Port …
+# … ODER quell-beschränkt (sauberer, nur vom Proxy):
+#   manuell/per Task:  ufw allow from <proxy-ip> to any port 3500
+```
+
+> **Health-Check entkoppelt (G16):** `nuxt3:ssr:verify` curlt nicht den Bind-Host, sondern den
+> separaten **`:nuxt3_ssr_healthcheck_host`** (Default `127.0.0.1`). Der Check läuft **lokal auf
+> der App-Box**, daher ist Loopback dort immer korrekt — auch wenn Nitro auf `0.0.0.0` bindet
+> (ein Client-`curl` auf `0.0.0.0` ist unportabel/undefiniert; deshalb der dedizierte
+> Loopback-Default statt Wiederverwendung des Bind-Hosts). Kein Override nötig im Normalfall.
+
 **Vorschlag (Gap G13, nicht implementieren):** ein optionaler Doppelbelegungs-Check
 `nuxt3:ssr:check_port` — vor `ssr:configure`/`restart` prüfen, ob `<port>` bereits von einer
 **fremden** Unit belegt ist (z. B. `ss -ltnp 'sport = :<port>'` bzw. Abgleich der vorhandenen
@@ -290,6 +351,7 @@ Bestehendes (zero-config-safe).
 | G5 | **Health-Check** `nuxt3:ssr:verify` nach Restart (curl `127.0.0.1:<port>` mit Retry, Deploy schlägt fehl statt still kaputt); ans Hook-Ende — **✅ Etappe 1 gebaut (feat/ssr-1.0)** | **P0** | | S |
 | G14 | **Content-Refresh-Mechanik (A2)**: FE-seitig interner Purge-Endpoint + `swr`-routeRules (FE/Layer-Revier); Gem-Seite klein — Purge-Konvention dokumentieren, ENV/Port-Kontrakt für den Endpoint sichern (kein Cache-Driver-Mount nötig, da A2 prozess-intern). Blockt den slots-Admin-Trigger. | **P0** | **✅ A2** | M (klein gem-seitig) |
 | G15 | **Purge-Smoke-Test + Nitro-Version-Pin (A2-Auflage, Austin 2026-06-11)**: routeRules-`swr`-Cache hat **kein First-Class-Invalidierungs-API** (nuxt#20495); Purge über Storage-Key-Prefix `nitro:routeRules` ist **internes/undokumentiertes** Verhalten → **Pflicht:** Pin auf getestete Nitro-Version **+** Smoke-Test, der den Purge real verifiziert. **Nicht optional** — Bestandteil der 1.0-Freigabe. | **P0** | **✅ A2** | S–M |
+| G16 | **Cross-Host-Bind + Firewall-Auflage (§4.5, moja-Testbett Robert 2026-06-11)**: Cross-Host-Proxy-Setup braucht `nuxt3_ssr_host=0.0.0.0` (Single-Host bleibt 127.0.0.1); ⚠️ **Pflicht-Firewall** des SSR-Ports auf Proxy/Tailnet (recipes2go `ufw`), da kein App-Nginx vor Nitro; Health-Check über separaten `:nuxt3_ssr_healthcheck_host` (Default 127.0.0.1) vom Bind-Host entkoppelt. **✅ Gem-Teil gebaut (feat/ssr-1.0)** — Doku/Defaults/verify; die Firewall-Anwendung ist Konsum-App/T4 (Austin). | **P0** | | S |
 | G9 | **Tests (Dexter)**: Specs für Task-Verkabelung + ERB-Template-Rendering (Unit-File mit/ohne ENV-File, nvm an/aus) | **P1** | | M |
 | G10 | **Docs (Homer)**: README-SSR-Abschnitt mit diesem Kontrakt abgleichen; Migrations-Guide nuxt2→recipes4nuxt (inkl. „Worker → `curl`-Purge umbauen") | **P1** | (Teil) | S |
 | G6 | **Monit-Pairing**: Monit-Template für die Nitro-Unit (PIDFile existiert schon), analog recipes2go `monit.rake` | **P1** | | M |
@@ -303,8 +365,9 @@ Bestehendes (zero-config-safe).
 
 **1.0 ist erreicht, wenn ALLE folgenden Bedingungen erfüllt sind:**
 
-1. **Alle P0-Gaps umgesetzt:** G1, G2, G3, G4, G5 (Kern-SSR-Deploy) **+ G14 + G15** (Content-Refresh
-   A2 inkl. der **Pflicht-Auflage** Nitro-Version-Pin + Purge-Smoke-Test — nicht optional).
+1. **Alle P0-Gaps umgesetzt:** G1, G2, G3, G4, G5, **G16** (Kern-SSR-Deploy inkl. Cross-Host-Bind +
+   Firewall-Auflage) **+ G14 + G15** (Content-Refresh A2 inkl. der **Pflicht-Auflage**
+   Nitro-Version-Pin + Purge-Smoke-Test — nicht optional).
 2. **P1-Gaps** (G9, G10, G6, G11, G12) nach Tim-Priorisierung grün; mindestens G9 (Tests) + G10 (Docs).
 3. **P2-Gaps** (G7, G8, G13) dürfen post-1.0.
 4. **Freigabe-Bedingung (Tim/Austin, hart):**

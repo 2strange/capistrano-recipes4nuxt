@@ -124,6 +124,16 @@ server {
     proxy_connect_timeout 75;
     proxy_send_timeout 3650;
     proxy_read_timeout 3650;
+
+    <% if fetch(:nginx_proxy_next_upstream) && !fetch(:nginx_proxy_next_upstream).to_s.strip.empty? %>
+    # Q5 Restart-Gap-Weichmacher (Contract §1.2): retry the upstream on a
+    # transient restart error instead of passing 502 to the client. Conditions
+    # are idempotent/safe (request never reached app code) → also harmless for
+    # the :static/Rails proxy. Configurable via :nginx_proxy_next_upstream* .
+    proxy_next_upstream <%= fetch(:nginx_proxy_next_upstream) %>;
+    <% if fetch(:nginx_proxy_next_upstream_tries) %>proxy_next_upstream_tries <%= fetch(:nginx_proxy_next_upstream_tries) %>;<% end %>
+    <% if fetch(:nginx_proxy_next_upstream_timeout) %>proxy_next_upstream_timeout <%= fetch(:nginx_proxy_next_upstream_timeout) %>;<% end %>
+    <% end %>
     proxy_buffers 64 512k;
     client_body_buffer_size 512k;
     client_max_body_size 0;

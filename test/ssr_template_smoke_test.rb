@@ -140,6 +140,29 @@ check("EnvironmentFile honours the overridden file name") do
   unit.include?("EnvironmentFile=-/home/deploy/moja/shared/config/custom_ssr.env")
 end
 
+# === Case 6: cross-host bind host 0.0.0.0 (G16) ===============================
+puts "Case 6: cross-host nuxt3_ssr_host=0.0.0.0"
+unit = render_unit(nuxt3_ssr_host: "0.0.0.0")
+check("NITRO_HOST binds 0.0.0.0 (cross-host proxy)") do
+  unit.include?("Environment=NITRO_HOST=0.0.0.0")
+end
+check("HOST binds 0.0.0.0 too") do
+  unit.include?("Environment=HOST=0.0.0.0")
+end
+check("PORT/NITRO_PORT unchanged by host override") do
+  unit.include?("Environment=NITRO_PORT=3500") && unit.include?("Environment=PORT=3500")
+end
+check("template carries the cross-host firewall security note") do
+  unit.downcase.include?("firewall") && unit.include?("0.0.0.0")
+end
+
+# Default (single-host) still binds loopback — the safe default must not drift.
+puts "Case 6b: default single-host bind stays 127.0.0.1"
+unit = render_unit
+check("default NITRO_HOST stays 127.0.0.1 (single-host safe default)") do
+  unit.include?("Environment=NITRO_HOST=127.0.0.1") && unit.include?("Environment=HOST=127.0.0.1")
+end
+
 puts
 if $failures.zero?
   puts "ALL ERB RENDER SMOKE CHECKS PASSED"

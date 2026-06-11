@@ -136,6 +136,12 @@ end
 check("nuxt3_ssr_verify_retries default present") do
   $settings.key?(:nuxt3_ssr_verify_retries)
 end
+check("nuxt3_ssr_host default = 127.0.0.1 (single-host safe default, G16)") do
+  fetch(:nuxt3_ssr_host) == "127.0.0.1"
+end
+check("nuxt3_ssr_healthcheck_host default = 127.0.0.1 (decoupled from bind, G16)") do
+  fetch(:nuxt3_ssr_healthcheck_host) == "127.0.0.1"
+end
 check("nuxt3_ssr_upload_env_on_deploy default present") do
   $settings.key?(:nuxt3_ssr_upload_env_on_deploy)
 end

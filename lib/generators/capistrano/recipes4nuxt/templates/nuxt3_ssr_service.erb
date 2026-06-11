@@ -14,6 +14,18 @@ WorkingDirectory=<%= shared_path %>/<%= fetch(:nuxt3_output_folder) %>
 # instance on a shared host — two units on the same port → EADDRINUSE, the
 # second won't start. Default 3500; allocate a free port per app/stage and
 # point nginx_upstream_port at it. (Contract §4.4)
+#
+# NOTE (Bind-Host, cross-host proxy — Contract §4.5/G16):
+#   nuxt3_ssr_host = 127.0.0.1 (default) → Single-Host: Proxy + App same box. SAFE.
+#   nuxt3_ssr_host = 0.0.0.0              → Cross-Host: proxy is on ANOTHER box
+#     (recipes2go/proxy_nginx pattern) → Nitro must bind all interfaces so the
+#     remote proxy can reach it. Unlike recipes2go puma/thin (App-Nginx fronts a
+#     unix socket), there is NO App-Nginx in front of Nitro here.
+#   ⚠️ SECURITY (mandatory when host = 0.0.0.0): the App box MUST firewall this
+#      port down to the proxy IP / Tailnet only — otherwise the bare Nitro
+#      process is open on the LAN. Use recipes2go `ufw`
+#      (set :ufw_additional_ports, [<port>]) or an explicit
+#      `ufw allow from <proxy-ip> to any port <port>`.
 Environment=NODE_ENV=production
 Environment=NITRO_HOST=<%= fetch(:nuxt3_ssr_host) %>
 Environment=NITRO_PORT=<%= fetch(:nuxt3_ssr_port) %>
