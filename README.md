@@ -1,9 +1,12 @@
-# ⚠️ WIP — NICHT VERWENDEN (Stand 2026-06-10)
+# ⚠️ WIP — NICHT VERWENDEN (Stand 2026-06-11)
 
-**Dieses Gem ist Work-in-Progress und für KEIN Projekt freigegeben** — weder neue noch
-bestehende. Es wurde noch **nie durch einen echten Deploy verifiziert**, und der
-1.0-Kontrakt (inkl. bekannter Gaps, siehe `docs/DEPLOY_CONTRACT.md` auf dem
-Design-Branch) ist nicht umgesetzt.
+**Dieses Gem ist Work-in-Progress und für KEIN Produktiv-Projekt freigegeben** — weder neue
+noch bestehende. Es wurde noch **nie durch einen echten Deploy verifiziert**.
+
+**Aber: aktiv in 1.0-Entwicklung.** Der Deploy-Kontrakt ist finalisiert (alle Entscheide
+getroffen) → [`docs/DEPLOY_CONTRACT.md`](docs/DEPLOY_CONTRACT.md) = verbindliche 1.0-Roadmap
+(Prio-Gaps §5, Umsetzungs-Reihenfolge §7). Umgesetzt + verifiziert wird auf dem
+**moja-Deploy-Testbett** (zusammen mit Robert/moja).
 
 **Standard für alle Nuxt-Deploys bleibt [capistrano-nuxt2](https://github.com/2strange/capistrano-nuxt2)** —
 bis dieses Gem **ALLE Funktionen** des Vorgängers übernommen hat und der kanonische
