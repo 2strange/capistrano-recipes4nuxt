@@ -70,9 +70,14 @@ namespace :load do
     #    otherwise the bare Nitro process is exposed on the LAN. There is NO
     #    App-Nginx in front of Nitro in the SSR path (unlike recipes2go puma/thin,
     #    where the App-Nginx fronts a unix socket), so the gem cannot do this for
-    #    you. Use recipes2go `ufw` (Capfile: require 'capistrano/recipes2go/ufw';
-    #    set :ufw_additional_ports, [<port>]) or an explicit per-source rule
-    #    `ufw allow from <proxy-ip> to any port <port>`. See Contract §4.5 / G16.
+    #    you. The correct fix is a SOURCE-RESTRICTED ufw rule and a one-time
+    #    T4/infra step (Austin), NOT a per-deploy Capistrano task:
+    #        ufw allow from <proxy-tailnet-ip> to any port <port> proto tcp
+    #    Do NOT use `ufw allow <port>` / `set :ufw_additional_ports, [<port>]` —
+    #    that opens the port to EVERYONE (the opposite of the requirement).
+    #    recipes2go `ufw` can only do bare allows (no `from <ip>`) and resets all
+    #    rules on each `ufw:setup`; recipes4nuxt deliberately ships no ufw recipe
+    #    (security-sensitive firewall = T4, not gem automation). Contract §4.5/G16.
     set :nuxt3_ssr_host,          -> { "127.0.0.1" }
     # PLACEHOLDER default – override per stage (analog :nginx_upstream_port).
     # Point the proxy here:  set :nginx_upstream_port, fetch(:nuxt3_ssr_port)
@@ -115,7 +120,7 @@ namespace :nuxt3 do
       puts "🔧 Nuxt 3 SSR bind:     #{fetch(:nuxt3_ssr_host)}:#{fetch(:nuxt3_ssr_port)}"
       puts "🔧 Nuxt 3 SSR healthchk: #{fetch(:nuxt3_ssr_healthcheck_host)}:#{fetch(:nuxt3_ssr_port)}"
       if fetch(:nuxt3_ssr_host).to_s != "127.0.0.1"
-        puts "⚠️  Nuxt 3 SSR binds non-loopback (#{fetch(:nuxt3_ssr_host)}) — firewall #{fetch(:nuxt3_ssr_port)} to the proxy/Tailnet (Contract §4.5/G16)."
+        puts "⚠️  Nuxt 3 SSR binds non-loopback (#{fetch(:nuxt3_ssr_host)}) — source-restrict #{fetch(:nuxt3_ssr_port)} to the proxy/Tailnet ONLY (T4/infra, Austin): ufw allow from <proxy-ip> to any port #{fetch(:nuxt3_ssr_port)} proto tcp. Do NOT `ufw allow <port>` (opens it public). Contract §4.5/G16."
       end
       puts "🔧 Nuxt 3 SSR ENV file: #{nuxt3_remote_env_file}"
     end

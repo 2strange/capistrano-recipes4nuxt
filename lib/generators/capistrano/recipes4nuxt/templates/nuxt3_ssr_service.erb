@@ -23,9 +23,13 @@ WorkingDirectory=<%= shared_path %>/<%= fetch(:nuxt3_output_folder) %>
 #     unix socket), there is NO App-Nginx in front of Nitro here.
 #   ⚠️ SECURITY (mandatory when host = 0.0.0.0): the App box MUST firewall this
 #      port down to the proxy IP / Tailnet only — otherwise the bare Nitro
-#      process is open on the LAN. Use recipes2go `ufw`
-#      (set :ufw_additional_ports, [<port>]) or an explicit
-#      `ufw allow from <proxy-ip> to any port <port>`.
+#      process is open on the LAN. This is a SOURCE-RESTRICTED rule and a
+#      one-time T4/infra step (Austin), NOT a per-deploy Capistrano task:
+#        ufw allow from <proxy-tailnet-ip> to any port <port> proto tcp
+#      Do NOT use `ufw allow <port>` / `set :ufw_additional_ports, [<port>]` —
+#      that opens the port to EVERYONE (the opposite of the requirement).
+#      recipes2go `ufw` can only do bare allows (no `from <ip>`); recipes4nuxt
+#      deliberately ships no ufw recipe. See Contract §4.5 / G16.
 Environment=NODE_ENV=production
 Environment=NITRO_HOST=<%= fetch(:nuxt3_ssr_host) %>
 Environment=NITRO_PORT=<%= fetch(:nuxt3_ssr_port) %>
