@@ -181,7 +181,8 @@ Was das konkret heißt (Variante A2):
   **BE-Endpoint** `GET rebuild_frontend` (heute `BuildFrontendWorker.perform_async`) bleiben.
   Nur die **Aktion** ändert sich: der Worker macht statt `npm run export` einen **authentifizierten
   `curl 127.0.0.1:<port>/api/_purge`** → der interne Nitro-Endpoint purged die Route-Caches
-  (`useStorage('cache').clear('nitro:routeRules')`) → nächster Request rendert frisch. **Kein
+  (`getKeys('nitro')` + `removeItem` pro Key — Referenz-Impl. im `nuxt3_layer`, **nicht**
+  `clear(prefix)`, s. G15-Notiz §11/Recherche) → nächster Request rendert frisch. **Kein
   npm-Build.** (§6a, Variante A)
 - Der **Flag-Datei-Status-Kontrakt** (§3.1, `_builded_app`/`_builded_logs`/`_builded_frontend`)
   bleibt der Lesekontrakt für die Admin-UI — die UI zeigt weiter „zuletzt aktualisiert / läuft
@@ -368,7 +369,7 @@ Bestehendes (zero-config-safe).
 | G4 | **Erst-Deploy-Ergonomie**: Hook prüft `systemctl cat <unit>` — Unit fehlt → automatisch `ssr:configure` statt Restart; `nuxt3_ssr_hooks=false`-Tanz entfällt — **✅ Etappe 1 gebaut (feat/ssr-1.0)** | **P0** | | S |
 | G5 | **Health-Check** `nuxt3:ssr:verify` nach Restart (curl `127.0.0.1:<port>` mit Retry, Deploy schlägt fehl statt still kaputt); ans Hook-Ende — **✅ Etappe 1 gebaut (feat/ssr-1.0)** | **P0** | | S |
 | G14 | **Content-Refresh-Mechanik (A2)**: FE-seitig interner Purge-Endpoint + `swr`-routeRules (FE/Layer-Revier); Gem-Seite klein — Purge-Konvention dokumentieren, ENV/Port-Kontrakt für den Endpoint sichern (kein Cache-Driver-Mount nötig, da A2 prozess-intern). Blockt den slots-Admin-Trigger. **✅ GEM-Teil gebaut (0.8.0, feat/ssr-1.0)**: ENV/Port-Kontrakt dokumentiert (migration §10), `purging\|admin-interface`-Flag-State **ehrlich abgegrenzt** (BE/Admin-geschrieben, NICHT vom Deploy-Gem — base_helpers.rb Doku + §3.2). **FE-Teil offen = Revier Luke/Layer** (Purge-Endpoint `server/api/_purge` + `swr`-routeRules + Cache-Status-Signal). | **P0** | **✅ A2** | M (klein gem-seitig) |
-| G15 | **Purge-Smoke-Test + Nitro-Version-Pin (A2-Auflage, Austin 2026-06-11)**: routeRules-`swr`-Cache hat **kein First-Class-Invalidierungs-API** (nuxt#20495); Purge über Storage-Key-Prefix `nitro:routeRules` ist **internes/undokumentiertes** Verhalten → **Pflicht:** Pin auf getestete Nitro-Version **+** Smoke-Test, der den Purge real verifiziert. **Nicht optional** — Bestandteil der 1.0-Freigabe. **✅ GEM-Teil gebaut (0.8.0, feat/ssr-1.0)**: Pin-Empfehlung + Smoke-Test-Harness/Vorlage (`docs/purge-smoke-test.sh` + `docs/PURGE_SMOKE_TEST.md`) geliefert. **Auflage erfüllt der Consumer mit SEINEM Endpoint** (Gem hat keinen Endpoint zum Testen) — Verifikation = Consumer/FE-Revier. | **P0** | **✅ A2** | S–M |
+| G15 | **Purge-Smoke-Test + Nitro-Version-Pin (A2-Auflage, Austin 2026-06-11)**: routeRules-`swr`-Cache hat **kein First-Class-Invalidierungs-API** (nuxt#20495); Purge über Storage-Key-Prefix `nitro:routes:…` (per `getKeys('nitro')`+`removeItem`, **nicht** `clear` — das no-op't still, verifiziert) ist **internes/undokumentiertes** Verhalten → **Pflicht:** Pin auf getestete Nitro-Version **+** Smoke-Test, der den Purge real verifiziert. **Nicht optional** — Bestandteil der 1.0-Freigabe. **✅ GEM-Teil gebaut (0.8.0, feat/ssr-1.0)**: Pin-Empfehlung + Smoke-Test-Harness/Vorlage (`docs/purge-smoke-test.sh` + `docs/PURGE_SMOKE_TEST.md`) geliefert. **Referenz-Endpoint (G15-verifiziert) im `nuxt3_layer`** (`feat/a2-purge-endpoint`, `8a1a1ad`, v0.1.4); Verifikation gegen echten Endpoint = Consumer/FE-Revier. | **P0** | **✅ A2** | S–M |
 | G16 | **Cross-Host-Bind + Port-Isolation (§4.5, moja-Testbett Robert 2026-06-11)**: Cross-Host-Proxy-Setup braucht `nuxt3_ssr_host=0.0.0.0` (Single-Host bleibt 127.0.0.1); Auflage: der SSR-Port muss **nur vom Proxy erreichbar** sein (kein App-Nginx vor Nitro). **WIE** = **Operator-/Infra-Sache (T4), NICHT vom Gem verwaltet**: Austins/moja-Topologie ist **Tailscale tailnet-only** → keine Public-Ports, inhärent sicher, **keine Firewall-Aktion nötig** (Zugang via Tailscale-ACLs). Nur falls ein Deployer NICHT tailnet-only ist (Public-Interface), isoliert **er** den Port (Firewall/VPN) — recipes2go-`ufw` taugt dafür nicht (nur nackte allows, kein `from`, `--force reset`). recipes4nuxt hat bewusst kein ufw; `ufw_additional_ports`/per-Deploy-ufw-Task haben hier nichts zu suchen. Health-Check über separaten `:nuxt3_ssr_healthcheck_host` (Default 127.0.0.1) vom Bind-Host entkoppelt. **✅ Gem-Teil gebaut (feat/ssr-1.0)** — Doku/Defaults/verify; Port-Isolation = Operator-Infra (Tailscale). | **P0** | | S |
 | G17 | **App-Nginx-:ssr-Port-Kollision (P0 — war INCIDENT, moja-Testbett Robert 2026-06-12)**: im `:ssr`-Mode legte `proxy_nginx` TROTZDEM einen App-Nginx auf `nginx_upstream_port` (= `nuxt3_ssr_port`) an → kollidiert mit Nitro auf demselben Port → `nginx -t` wird **host-weit** ungültig → `systemctl restart nginx` failt → **alle Sites des App-Hosts liefern 502** (auf moja Shared-Host: moja-lms + moja-api mitgerissen, manuelles Recovern nötig). Der App-Nginx ist ein `:static`-Artefakt; bei `:ssr` proxyt der Proxy direkt auf Nitro → KEIN App-Nginx. **✅ gefixt in 0.7.0 (feat/ssr-1.0)**: `nginx_app_hooks` defaultet bei `:ssr` deploy_mode-aware auf `false` (Zero-Config) + harter Hook-Guard (`nuxt3_deploy_mode == :ssr` überspringt `nginx:app:update` selbst bei force-gesetztem Flag). `:static`/nuxt2-Static/reiner Rails-Proxy (mode unset) unberührt. | **P0** | | S |
 | G18 | **base-require Nuxt2-Hook-Footgun (moja-Testbett Robert 2026-06-12)**: `require "capistrano/recipes4nuxt"` (base) + `/nginx` ziehen die Nuxt2-`nuxt.rake`, deren `after 'deploy:published'`-Hook `nuxt:rebuild_app` (a) mit dem nuxt3-SSR-`deploy:published`-Hook kollidiert und (b) `npm install` OHNE nvm fährt → `exit 127`. **✅ gefixt in 0.7.0 (feat/ssr-1.0)**: der Nuxt2-`deploy:published`-Hook ist deploy_mode-aware — ist `nuxt3_deploy_mode` gesetzt (`:ssr`/`:static`), feuert er NICHT (der nuxt3-Pfad hat seinen eigenen Hook). Reiner Nuxt2-Deploy (mode unset) unverändert. | **P0** | | S |
@@ -509,9 +510,13 @@ Belegt aus Nitro/Nuxt-Doku + Issues (Quellen unten):
 - routeRules-`swr`/`cache` schreibt in die **`cache`**-Storage-Mount unter der Gruppe
   **`nitro/route-rules`** (cachedEventHandler/-Function nutzen `nitro/functions` bzw. `nitro/handlers`).
   Key-Schema `${base}:${group}:${name}:${getKey}.json`, Doppelpunkt-normalisiert.
-- **Purge per Storage-Prefix** ist möglich:
-  `await useStorage('cache').clear('nitro:routeRules')` (bzw. gezielt `removeItem(<key>)`).
-  Gleiche Mechanik, mit der man `cachedEventHandler` über `clear('nitro:handlers')` leert.
+- **Purge per Storage-Prefix** ist möglich — aber **nur** durch Aufzählen+Einzellöschen:
+  `const keys = await useStorage('cache').getKeys('nitro'); keys.forEach(k => …removeItem(k))`.
+  ⚠️ **NICHT** `clear('nitro:routeRules')`: (1) der echte Prefix ist `nitro:routes:…` (nicht
+  `nitro:routeRules`), (2) `clear(prefix)` ist auf den colon-namespaced Keys (unstorage 1.17.5,
+  Default Memory-/FS-Driver) ein **No-op** → löscht nichts, HTTP 200, Cache bleibt stale =
+  **stiller Prod-Failure** (verifiziert von Luke im realen G15-Test). `getKeys`+`removeItem` ist
+  der verifizierte Weg (Referenz-Impl. `nuxt3_layer` `server/api/_purge.post.ts`).
 - ⚠️ **RISIKO / ehrlich benannt:** Es gibt **KEIN First-Class-, offiziell-dokumentiertes
   Invalidierungs-API für routeRules-Caches.** Das `.invalidate()`-API existiert nur für
   `defineCachedFunction`/`defineCachedEventHandler`, **nicht** für routeRules. Der Storage-Prefix-Purge
@@ -521,11 +526,13 @@ Belegt aus Nitro/Nuxt-Doku + Issues (Quellen unten):
   der Nitro-Cache lebt im **Nitro-Prozess**. Beim **Default Memory-Driver kann ein Fremdprozess den
   Cache NICHT leeren.** Genau zwei saubere Wege:
   - **A1 — gemeinsamer Cache-Storage-Driver:** `cache`-Mount auf **fs** (`shared/`-Pfad) oder **redis**
-    legen; dann kann der BE-Worker per `unstorage`/CLI die Keys mit Prefix `nitro:routeRules` löschen.
-  - **A2 — interner Purge-Endpoint im Nitro:** ein geschützter `server/api/_purge`-Handler ruft
-    `useStorage('cache').clear('nitro:routeRules')`; der BE-Worker macht nur einen authentifizierten
-    `curl 127.0.0.1:<port>/api/_purge`. **Empfohlener Weg** — robust, driver-agnostisch, kein
-    geteilter Storage nötig, Admin-Trigger = ein HTTP-Call.
+    legen; dann kann der BE-Worker per `unstorage`/CLI die Keys mit Prefix `nitro:routes:…` löschen
+    (aufzählen+`removeItem`, nicht `clear`).
+  - **A2 — interner Purge-Endpoint im Nitro:** ein geschützter `server/api/_purge`-Handler zählt
+    `getKeys('nitro')` auf und `removeItem`t jeden Key (**nicht** `clear(prefix)` — s. Warnung oben);
+    der BE-Worker macht nur einen authentifizierten `curl 127.0.0.1:<port>/api/_purge`. **Empfohlener
+    Weg** — robust, driver-agnostisch, kein geteilter Storage nötig, Admin-Trigger = ein HTTP-Call.
+    Gebaut + G15-verifiziert im `nuxt3_layer` (`feat/a2-purge-endpoint`, `8a1a1ad`, v0.1.4).
 
   → **Fazit Recherche: Ja, der Purge geht — aber nur über A1/A2, nicht „out of the box".** Der
   saubere, empfohlene Pfad ist **A2 (interner Endpoint)**.

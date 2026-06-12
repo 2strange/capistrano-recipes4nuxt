@@ -169,7 +169,7 @@ A2 ist **bewusst klein auf der Gem-Seite**. Der Purge-Endpoint ist eine **Nitro-
 | Baustein | Wer | Im Gem? |
 |---|---|---|
 | `swr`-routeRules in `nuxt.config.ts` | **Luke (FE/Layer)** | ❌ App-Code |
-| `server/api/_purge`-Endpoint (`useStorage('cache').clear('nitro:routeRules')`) + Auth | **Luke (FE/Layer)**, wiederverwendbar im Layer | ❌ App-Code (Nitro-Route) |
+| `server/api/_purge`-Endpoint (`getKeys('nitro')` + `removeItem` — s. Layer-Referenz) + Auth | **Luke (FE/Layer)** — **gebaut + G15-verifiziert im `nuxt3_layer`** | ❌ App-Code (Nitro-Route) |
 | BE-Worker: `npm run export` → authentifizierter `curl …/_purge` | **Bill (BE)** | ❌ BE-Code |
 | Admin-Button + renderState-Texte | **Luke (FE)** | ❌ FE-Code |
 | **ENV-File-Mechanismus** (Auth-Token landet in `nuxt3_ssr.env`) | **recipes4nuxt** | ✅ schon da (§4 / `ssr:upload_env`) |
@@ -198,17 +198,27 @@ Damit BE→Nitro-Purge funktioniert, brauchst du nur drei Dinge — alle vom Gem
 3. **Endpoint-Pfad-Konvention:** empfohlen `POST /api/_purge` (geschützt). Der Pfad ist FE-Sache;
    der BE-`curl` und der Endpoint müssen sich nur einigen.
 
-Skizze (FE/Layer — **nicht** im Gem, gehört in deine App / den Layer):
+### 📎 Kanonische Referenz-Implementierung (im Layer, **nicht** im Gem dupliziert)
 
-```ts
-// server/api/_purge.post.ts   (FE/Layer — Luke-Revier)
-export default defineEventHandler(async (event) => {
-  const token = getHeader(event, 'x-purge-token')
-  if (token !== useRuntimeConfig().purgeToken) throw createError({ statusCode: 401 })
-  await useStorage('cache').clear('nitro:routeRules')   // ⚠️ undokumentiert, s. §11/G15
-  return { ok: true }
-})
-```
+Den Purge-Endpoint **nicht selbst nachbauen** — er ist im **`nuxt3_layer` gebaut + G15-verifiziert**.
+**Single Source = der Layer** (das Gem schreibt die Mechanik bewusst nicht vor, sondern verweist):
+
+> **Referenz:** `nuxt3_layer` → `server/api/_purge.post.ts`, Branch `feat/a2-purge-endpoint`
+> (Commit `8a1a1ad`, v0.1.4). **Opt-in** (Endpoint ist deaktiviert/404, solange kein Token
+> konfiguriert ist), Auth via `NUXT_PURGE_TOKEN` → `x-purge-token`-Header, konstant-zeitiger
+> Vergleich (`timingSafeEqual`).
+
+**Verifizierte Purge-Mechanik** (gegen nuxt 3.21.6 / nitropack 2.13.4 / unstorage 1.17.5):
+`getKeys('nitro')` aufzählen und **pro Key `removeItem(key)`** — **nicht** `clear(prefix)`.
+
+> ⚠️ **Stiller Failure-Mode (genau dafür ist der G15-Smoke-Test Pflicht):** der früher hier
+> dokumentierte Weg `useStorage('cache').clear('nitro:routeRules')` ist **doppelt falsch** —
+> (1) der echte Cache-Key-Prefix ist `nitro:routes:…`, **nicht** `nitro:routeRules`, und
+> (2) `clear(prefix)` ist auf den colon-namespaced Keys (unstorage 1.17.5, Default Memory-/FS-Driver)
+> ein **No-op**: es löscht **nichts**, der Endpoint antwortet trotzdem `200`, der Cache bleibt stale
+> → **stiller Prod-Failure** (Admin drückt „aktualisieren", nichts passiert). Verifiziert von Luke
+> beim echten G15-Test (s. §11).
+
 ```rb
 # BE-Worker (Bill): statt `npm run export` →
 `curl -fsS -X POST -H "x-purge-token: #{ENV['NUXT_PURGE_TOKEN']}" http://127.0.0.1:#{port}/api/_purge`
@@ -216,19 +226,24 @@ export default defineEventHandler(async (event) => {
 
 ## 11. Nitro-Version-Pin + Purge-Smoke-Test (A2-Pflicht-Auflage, G15)
 
-> ⚠️ **Pflicht, nicht optional.** `useStorage('cache').clear('nitro:routeRules')` purgt einen
-> routeRules-`swr`-Cache über einen **internen, undokumentierten** Storage-Key-Prefix — es gibt
-> **kein** First-Class-Invalidierungs-API für routeRules ([nuxt#20495](https://github.com/nuxt/nuxt/discussions/20495)).
-> Ein Nitro-Upgrade kann das Key-Schema ändern und den Purge **lautlos ins Leere** laufen lassen.
+> ⚠️ **Pflicht, nicht optional.** Der Purge (`getKeys('nitro')` + `removeItem`, s. Layer-Referenz
+> §10) räumt einen routeRules-`swr`-Cache über einen **internen, undokumentierten** Storage-Key-Prefix
+> (`nitro:routes:…`) — es gibt **kein** First-Class-Invalidierungs-API für routeRules
+> ([nuxt#20495](https://github.com/nuxt/nuxt/discussions/20495)). Ein Nitro-/unstorage-Upgrade kann das
+> Key-Schema ändern und den Purge **lautlos ins Leere** laufen lassen (`200`, aber nichts gelöscht).
+> **Beleg, warum der Smoke-Test Pflicht ist:** der frühere `clear('nitro:routeRules')`-Weg war genau
+> so ein stiller No-op (verifiziert, unstorage 1.17.5) — er fiel erst im realen G15-Test auf.
 
 **Auflage (erfüllt der Consumer):**
 1. **Nitro/Nuxt pinnen** — in der Consumer-`package.json` eine **exakte, getestete** Version
-   festnageln (kein Caret), z. B.:
+   festnageln (kein Caret). Die im `nuxt3_layer` real verifizierte Referenz-Matrix:
    ```json
-   { "dependencies": { "nuxt": "3.13.2" }, "overrides": { "nitropack": "2.9.7" } }
+   { "dependencies": { "nuxt": "3.21.6" }, "overrides": { "nitropack": "2.13.4" } }
    ```
-   Gegen diese Version ist der Purge-Pfad verifiziert. **Vor jedem Nuxt/Nitro-Bump den Smoke-Test
-   erneut fahren.** (Getestete Referenz-Matrix: s. `docs/PURGE_SMOKE_TEST.md`.)
+   Verifiziert gegen **nuxt 3.21.6 / nitropack 2.13.4 / unstorage 1.17.5 / node 24.16.0**. Gegen
+   diese Matrix ist der Purge-Pfad (`getKeys('nitro')` + `removeItem`) grün. **Consumer pinnt exakt
+   und re-verifiziert vor jedem Nuxt/Nitro-Bump** — die Mechanik ist **Nitro-intern** (nuxt#20495),
+   ein Bump kann sie still brechen. (Getestete Referenz-Matrix: s. `docs/PURGE_SMOKE_TEST.md`.)
 2. **Purge-Smoke-Test gegen DEINEN Endpoint** fahren — Vorlage + Anleitung liegen in
    `docs/purge-smoke-test.sh` + `docs/PURGE_SMOKE_TEST.md`. Er prüft real: Route cached → Purge →
    Route invalidiert/frisch. **Das Gem kann diesen Test nicht selbst fahren** (es gibt keinen

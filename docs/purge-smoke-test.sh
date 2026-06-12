@@ -10,12 +10,15 @@
 #      purge endpoint. This script is the harness; you supply the endpoint.
 #
 # WHAT IT VERIFIES (the A2 risk — nuxt#20495):
-#   `useStorage('cache').clear('nitro:routeRules')` purges a routeRules `swr`
-#   cache via an INTERNAL/UNDOCUMENTED storage-key prefix. A Nitro upgrade can
-#   change that key schema and make the purge silently no-op. This test proves,
-#   against YOUR pinned Nitro version, that the purge REALLY invalidates the
-#   cache (cached response → purge → fresh response), so a version bump can't
-#   regress it unnoticed. Run it after every Nuxt/Nitro bump.
+#   The purge clears a routeRules `swr` cache via an INTERNAL/UNDOCUMENTED Nitro
+#   storage-key prefix (`nitro:routes:…`). The verified mechanic enumerates the
+#   keys with `getKeys('nitro')` and `removeItem()`s each one — NOT `clear(prefix)`,
+#   which silently no-ops on the colon-namespaced keys (HTTP 200, cache stale).
+#   A Nitro/unstorage upgrade can change that key schema and make the purge
+#   silently no-op. This test proves, against YOUR pinned Nitro version, that the
+#   purge REALLY invalidates the cache (cached response → purge → fresh response),
+#   so a version bump can't regress it unnoticed. Run it after every Nuxt/Nitro
+#   bump. (Reference endpoint impl.: nuxt3_layer server/api/_purge.post.ts.)
 #
 # HOW THE CHECK WORKS:
 #   1. Hit a swr-cached content route twice → the 2nd hit is served from cache
@@ -138,7 +141,7 @@ if [ "$DETECT" = "header" ]; then
     ok "PURGE VERIFIED — first post-purge request is a cache MISS (re-rendered fresh)."
     exit 0
   fi
-  fail "PURGE DID NOT INVALIDATE — header still '$AFTER' (expected MISS). G15 risk realized: re-pin Nitro / inspect the routeRules key prefix (nuxt#20495)."
+  fail "PURGE DID NOT INVALIDATE — header still '$AFTER' (expected MISS). G15 risk realized: re-pin Nitro / inspect the actual keys via getKeys('nitro') (prefix nitro:routes:…; do NOT use clear(prefix) — it no-ops, nuxt#20495)."
 else
   AFTER="$(fetch_marker)"
   echo "   render marker after purge: $AFTER"
@@ -146,5 +149,5 @@ else
     ok "PURGE VERIFIED — render marker changed ($BEFORE → $AFTER): the cache was really cleared."
     exit 0
   fi
-  fail "PURGE DID NOT INVALIDATE — marker unchanged ('$BEFORE'). G15 risk realized: the routeRules purge no-op'd. Re-pin Nitro / inspect the 'nitro:routeRules' key prefix (nuxt#20495)."
+  fail "PURGE DID NOT INVALIDATE — marker unchanged ('$BEFORE'). G15 risk realized: the routeRules purge no-op'd. Re-pin Nitro / inspect the actual keys via getKeys('nitro') (prefix nitro:routes:…; do NOT use clear(prefix) — it no-ops, nuxt#20495)."
 fi
