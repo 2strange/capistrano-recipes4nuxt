@@ -360,6 +360,8 @@ Bestehendes (zero-config-safe).
 | G14 | **Content-Refresh-Mechanik (A2)**: FE-seitig interner Purge-Endpoint + `swr`-routeRules (FE/Layer-Revier); Gem-Seite klein — Purge-Konvention dokumentieren, ENV/Port-Kontrakt für den Endpoint sichern (kein Cache-Driver-Mount nötig, da A2 prozess-intern). Blockt den slots-Admin-Trigger. | **P0** | **✅ A2** | M (klein gem-seitig) |
 | G15 | **Purge-Smoke-Test + Nitro-Version-Pin (A2-Auflage, Austin 2026-06-11)**: routeRules-`swr`-Cache hat **kein First-Class-Invalidierungs-API** (nuxt#20495); Purge über Storage-Key-Prefix `nitro:routeRules` ist **internes/undokumentiertes** Verhalten → **Pflicht:** Pin auf getestete Nitro-Version **+** Smoke-Test, der den Purge real verifiziert. **Nicht optional** — Bestandteil der 1.0-Freigabe. | **P0** | **✅ A2** | S–M |
 | G16 | **Cross-Host-Bind + Port-Isolation (§4.5, moja-Testbett Robert 2026-06-11)**: Cross-Host-Proxy-Setup braucht `nuxt3_ssr_host=0.0.0.0` (Single-Host bleibt 127.0.0.1); Auflage: der SSR-Port muss **nur vom Proxy erreichbar** sein (kein App-Nginx vor Nitro). **WIE** = **Operator-/Infra-Sache (T4), NICHT vom Gem verwaltet**: Austins/moja-Topologie ist **Tailscale tailnet-only** → keine Public-Ports, inhärent sicher, **keine Firewall-Aktion nötig** (Zugang via Tailscale-ACLs). Nur falls ein Deployer NICHT tailnet-only ist (Public-Interface), isoliert **er** den Port (Firewall/VPN) — recipes2go-`ufw` taugt dafür nicht (nur nackte allows, kein `from`, `--force reset`). recipes4nuxt hat bewusst kein ufw; `ufw_additional_ports`/per-Deploy-ufw-Task haben hier nichts zu suchen. Health-Check über separaten `:nuxt3_ssr_healthcheck_host` (Default 127.0.0.1) vom Bind-Host entkoppelt. **✅ Gem-Teil gebaut (feat/ssr-1.0)** — Doku/Defaults/verify; Port-Isolation = Operator-Infra (Tailscale). | **P0** | | S |
+| G17 | **App-Nginx-:ssr-Port-Kollision (P0 — war INCIDENT, moja-Testbett Robert 2026-06-12)**: im `:ssr`-Mode legte `proxy_nginx` TROTZDEM einen App-Nginx auf `nginx_upstream_port` (= `nuxt3_ssr_port`) an → kollidiert mit Nitro auf demselben Port → `nginx -t` wird **host-weit** ungültig → `systemctl restart nginx` failt → **alle Sites des App-Hosts liefern 502** (auf moja Shared-Host: moja-lms + moja-api mitgerissen, manuelles Recovern nötig). Der App-Nginx ist ein `:static`-Artefakt; bei `:ssr` proxyt der Proxy direkt auf Nitro → KEIN App-Nginx. **✅ gefixt in 0.7.0 (feat/ssr-1.0)**: `nginx_app_hooks` defaultet bei `:ssr` deploy_mode-aware auf `false` (Zero-Config) + harter Hook-Guard (`nuxt3_deploy_mode == :ssr` überspringt `nginx:app:update` selbst bei force-gesetztem Flag). `:static`/nuxt2-Static/reiner Rails-Proxy (mode unset) unberührt. | **P0** | | S |
+| G18 | **base-require Nuxt2-Hook-Footgun (moja-Testbett Robert 2026-06-12)**: `require "capistrano/recipes4nuxt"` (base) + `/nginx` ziehen die Nuxt2-`nuxt.rake`, deren `after 'deploy:published'`-Hook `nuxt:rebuild_app` (a) mit dem nuxt3-SSR-`deploy:published`-Hook kollidiert und (b) `npm install` OHNE nvm fährt → `exit 127`. **✅ gefixt in 0.7.0 (feat/ssr-1.0)**: der Nuxt2-`deploy:published`-Hook ist deploy_mode-aware — ist `nuxt3_deploy_mode` gesetzt (`:ssr`/`:static`), feuert er NICHT (der nuxt3-Pfad hat seinen eigenen Hook). Reiner Nuxt2-Deploy (mode unset) unverändert. | **P0** | | S |
 | G9 | **Tests (Dexter)**: Specs für Task-Verkabelung + ERB-Template-Rendering (Unit-File mit/ohne ENV-File, nvm an/aus) | **P1** | | M |
 | G10 | **Docs (Homer)**: README-SSR-Abschnitt mit diesem Kontrakt abgleichen; Migrations-Guide nuxt2→recipes4nuxt (inkl. „Worker → `curl`-Purge umbauen") | **P1** | (Teil) | S |
 | G6 | **Monit-Pairing**: Monit-Template für die Nitro-Unit (PIDFile existiert schon), analog recipes2go `monit.rake` | **P1** | | M |
@@ -374,8 +376,9 @@ Bestehendes (zero-config-safe).
 **1.0 ist erreicht, wenn ALLE folgenden Bedingungen erfüllt sind:**
 
 1. **Alle P0-Gaps umgesetzt:** G1, G2, G3, G4, G5, **G16** (Kern-SSR-Deploy inkl. Cross-Host-Bind;
-   Port-Isolation = Operator-Infra/Tailscale, nicht Gem) **+ G14 + G15** (Content-Refresh A2 inkl. der **Pflicht-Auflage**
-   Nitro-Version-Pin + Purge-Smoke-Test — nicht optional).
+   Port-Isolation = Operator-Infra/Tailscale, nicht Gem), **G17 + G18** (App-Nginx-:ssr-Kollision-
+   Incident-Fix + base-require-Hook-Footgun, ✅ 0.7.0) **+ G14 + G15** (Content-Refresh A2 inkl. der
+   **Pflicht-Auflage** Nitro-Version-Pin + Purge-Smoke-Test — nicht optional).
 2. **P1-Gaps** (G9, G10, G6, G11, G12) nach Tim-Priorisierung grün; mindestens G9 (Tests) + G10 (Docs).
 3. **P2-Gaps** (G7, G8, G13) dürfen post-1.0.
 4. **Freigabe-Bedingung (Tim/Austin, hart):**
@@ -642,6 +645,9 @@ zwischen Klicks). Beide hielten den Admin-Trigger funktionell (Q2 erfüllt) — 
    `purging|admin-interface` kommt mit A2/Etappe 2) — Sichtbarkeit für alles Weitere.
 4. **G4** ✅ Erst-Deploy-Ergonomie (Unit-Autodetect statt `nuxt3_ssr_hooks=false`-Tanz).
 5. **G5** ✅ Health-Check `ssr:verify` nach Restart — ab hier schlägt ein kaputter Deploy laut fehl.
+6. **G17 + G18** ✅ (0.7.0, nach dem ersten realen moja-SSR-Deploy 2026-06-12): App-Nginx-:ssr-
+   Port-Kollision (war Incident) + base-require-Nuxt2-Hook-Footgun — beide deploy_mode-aware
+   gefixt; Smoke `test/deploy_mode_hooks_smoke_test.rb` grün.
 
 **Etappe 2 — Content-Refresh A2 (P0, FE/BE + kleine Gem-Konvention):**
 6. **G14 (A2)** FE: `swr`-routeRules + interner Purge-Endpoint (Luke/Layer); BE: Worker-Innenleben

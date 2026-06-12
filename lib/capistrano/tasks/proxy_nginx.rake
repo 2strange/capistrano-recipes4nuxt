@@ -79,7 +79,20 @@ namespace :load do
     # This is from your original setup, relevant for the app server.
     # append :linked_dirs, fetch(:nginx_root_folder), fetch(:nginx_log_folder)
 
-    set :nginx_app_hooks,         -> { true }
+    # === G17 (App-Nginx :ssr Port-Kollision, P0 — war Incident) ===============
+    # deploy_mode-aware DEFAULT: im Nuxt-3-`:ssr`-Mode terminiert der Proxy SSL und
+    # proxyt DIREKT auf den Nitro-Port (`nuxt3_ssr_port`) — es gibt GAR KEINEN
+    # App-Nginx. Würde der App-Nginx-Hook trotzdem feuern, legte er einen vhost auf
+    # `nginx_upstream_port` (= `nuxt3_ssr_port`) an → `listen <port>` kollidiert mit
+    # Nitro auf demselben Port → `nginx -t` wird HOST-WEIT ungültig → der nächste
+    # `systemctl restart nginx` reißt ALLE Sites des App-Hosts auf 502 (Shared-Host-
+    # Incident). Der App-Nginx ist ein Artefakt des `:static`-Modells (nginx liefert
+    # die Files). Deshalb: bei `:ssr` defaultet `nginx_app_hooks` auf `false`, sodass
+    # der App-vhost weder angelegt noch `nginx -t`/restart darauf ausgeführt wird —
+    # ohne dass der Consumer ein Flag setzen muss (Zero-Config). `:static`,
+    # nuxt2-Static UND der reine Rails/recipes2go-Proxy-Fall (`nuxt3_deploy_mode`
+    # ungesetzt) bleiben unberührt → Default `true`. Override jederzeit explizit.
+    set :nginx_app_hooks,         -> { fetch(:nuxt3_deploy_mode, nil) == :ssr ? false : true }
     set :allow_well_known_app,    -> { false } # Usually handled by proxy
   end
 end
@@ -418,10 +431,18 @@ namespace :deploy do
       invoke "nginx:proxy:update"
     end
 
-    # Update App Nginx if hooks enabled and app roles exist for the stage
-    if fetch(:nginx_app_hooks) && roles(fetch(:nginx_app_roles)).any?
+    # Update App Nginx if hooks enabled and app roles exist for the stage.
+    # G17: hard guard against the :ssr App-Nginx-port-collision incident — even if
+    # a stale consumer config force-sets `nginx_app_hooks, true`, the App-vhost (on
+    # `nuxt3_ssr_port`) must NEVER be (re)created in :ssr mode (it would collide
+    # with Nitro and invalidate host-wide nginx -t). The deploy_mode check here is
+    # authoritative; the deploy_mode-aware default above is the Zero-Config layer.
+    ssr_mode = fetch(:nuxt3_deploy_mode, nil) == :ssr
+    if !ssr_mode && fetch(:nginx_app_hooks) && roles(fetch(:nginx_app_roles)).any?
       puts "훅: nginx:app:update wird aufgerufen"
       invoke "nginx:app:update"
+    elsif ssr_mode
+      puts "ℹ️ [APP] :ssr-Mode → App-Nginx-Hook übersprungen (Proxy proxyt direkt auf Nitro:#{fetch(:nuxt3_ssr_port)}, kein App-Nginx). [G17]"
     end
   end
 end

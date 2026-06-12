@@ -147,8 +147,20 @@ namespace :nuxt do
 end
 
 namespace :deploy do
+  # === G18 (base-require Nuxt2-Hook-Footgun) ================================
+  # `require "capistrano/recipes4nuxt"` (base) + `/nginx` load THIS Nuxt2
+  # nuxt.rake. Its deploy:published hook (a) collides with the nuxt3-SSR
+  # deploy:published hook and (b) runs `npm install` WITHOUT nvm → `exit 127`.
+  # deploy_mode-aware skip: if `nuxt3_deploy_mode` is set at all (:ssr or
+  # :static), the nuxt3 path owns deploy:published (it has its own hook) → the
+  # Nuxt2 hook must NOT fire. A PURE Nuxt2 deploy (no nuxt3_deploy_mode set,
+  # default nil) is unchanged → the hook still rebuilds the nuxt2 app 1:1.
   after 'deploy:published', :rebuild_nuxt_app do
-    invoke "nuxt:rebuild_app"
+    if fetch(:nuxt3_deploy_mode, nil).nil?
+      invoke "nuxt:rebuild_app"
+    else
+      puts "ℹ️ [NUXT2] nuxt3_deploy_mode=#{fetch(:nuxt3_deploy_mode)} gesetzt → Nuxt2-rebuild-Hook übersprungen (der nuxt3-Pfad hat seinen eigenen deploy:published-Hook). [G18]"
+    end
   end
 end
 
