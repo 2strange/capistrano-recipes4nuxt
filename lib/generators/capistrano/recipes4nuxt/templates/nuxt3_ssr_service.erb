@@ -24,7 +24,7 @@ WorkingDirectory=<%= shared_path %>/<%= fetch(:nuxt3_output_folder) %>
 #   ⚠️ SECURITY (when host = 0.0.0.0): the bare Nitro process then listens on all
 #      interfaces. The requirement is only that this port be reachable ONLY by the
 #      proxy. HOW that isolation is done is OPERATOR/infra (T4) — NOT the gem:
-#        • tailnet-only (Austin/moja): traffic runs over Tailscale, NO public ports
+#        • tailnet-only setup: traffic runs over Tailscale, NO public ports
 #          exist → 0.0.0.0 is already safe; access control = Tailscale ACLs. No
 #          firewall action needed.
 #        • only if NOT tailnet-only (box has a public interface): the deployer

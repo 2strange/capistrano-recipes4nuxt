@@ -47,17 +47,17 @@ end
 
 def base_vars(overrides = {})
   {
-    application: "moja",
+    application: "myapp",
     stage: "production",
-    shared_path: "/home/deploy/moja/shared",
+    shared_path: "/home/deploy/myapp/shared",
     nuxt3_ssr_user: "deploy",
     nuxt3_output_folder: "output",
     nuxt3_ssr_host: "127.0.0.1",
     nuxt3_ssr_port: 3500,
     nuxt3_ssr_env: {},
     nuxt3_ssr_env_file: "nuxt3_ssr.env",
-    nuxt3_ssr_service_file: "moja_production_nuxt3_ssr",
-    nuxt3_pid_path: "/home/deploy/moja/shared/pids",
+    nuxt3_ssr_service_file: "myapp_production_nuxt3_ssr",
+    nuxt3_pid_path: "/home/deploy/myapp/shared/pids",
     nuxt3_nvm_script: "$HOME/.nvm/nvm.sh",
     nuxt3_nvm_version: "20.19.0"
   }.merge(overrides)
@@ -86,7 +86,7 @@ end
 puts "Case 1: defaults"
 unit = render_unit
 check("renders the optional ENV file (EnvironmentFile=- … nuxt3_ssr.env)") do
-  unit.include?("EnvironmentFile=-/home/deploy/moja/shared/config/nuxt3_ssr.env")
+  unit.include?("EnvironmentFile=-/home/deploy/myapp/shared/config/nuxt3_ssr.env")
 end
 check("ENV file line uses the optional '-' prefix (zero-config-safe)") do
   unit =~ /EnvironmentFile=-\S/
@@ -95,13 +95,13 @@ check("NITRO_PORT reflects nuxt3_ssr_port (3500)") do
   unit.include?("Environment=NITRO_PORT=3500") && unit.include?("Environment=PORT=3500")
 end
 check("service Description carries application + stage") do
-  unit.include?("moja_production")
+  unit.include?("myapp_production")
 end
 check("PIDFile points at the per-service pid path") do
-  unit.include?("PIDFile=/home/deploy/moja/shared/pids/moja_production_nuxt3_ssr.pid")
+  unit.include?("PIDFile=/home/deploy/myapp/shared/pids/myapp_production_nuxt3_ssr.pid")
 end
 check("ExecStart runs node against shared output server/index.mjs") do
-  unit.include?("node /home/deploy/moja/shared/output/server/index.mjs")
+  unit.include?("node /home/deploy/myapp/shared/output/server/index.mjs")
 end
 check("ENV file is loaded AFTER the static Environment= lines (file wins)") do
   unit.index("Environment=NITRO_PORT=") < unit.index("EnvironmentFile=-")
@@ -123,7 +123,7 @@ check("extra env hash becomes an Environment= line") do
   unit.include?("Environment=NUXT_PUBLIC_FOO=bar")
 end
 check("ENV file line still present alongside the static entry") do
-  unit.include?("EnvironmentFile=-/home/deploy/moja/shared/config/nuxt3_ssr.env")
+  unit.include?("EnvironmentFile=-/home/deploy/myapp/shared/config/nuxt3_ssr.env")
 end
 
 # === Case 4: nvm ExecStart wrapper ============================================
@@ -137,7 +137,7 @@ end
 puts "Case 5: overridden nuxt3_ssr_env_file"
 unit = render_unit(nuxt3_ssr_env_file: "custom_ssr.env")
 check("EnvironmentFile honours the overridden file name") do
-  unit.include?("EnvironmentFile=-/home/deploy/moja/shared/config/custom_ssr.env")
+  unit.include?("EnvironmentFile=-/home/deploy/myapp/shared/config/custom_ssr.env")
 end
 
 # === Case 6: cross-host bind host 0.0.0.0 (G16) ===============================

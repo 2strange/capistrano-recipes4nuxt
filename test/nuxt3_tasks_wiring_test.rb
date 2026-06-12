@@ -10,7 +10,7 @@
 # Run:  ruby test/nuxt3_tasks_wiring_test.rb
 #
 # This is a structural check (do the tasks/hooks exist, are the helpers wired);
-# behavioural execution against a real host is the deploy-verify step (Robert).
+# behavioural execution against a real host is the deploy-verify step.
 
 require "rake"
 

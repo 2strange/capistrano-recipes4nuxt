@@ -43,14 +43,14 @@ end
 
 def base_vars(overrides = {})
   {
-    application: "moja",
+    application: "myapp",
     stage: "production",
-    nginx_proxy_site_name: "moja_production_proxy",
+    nginx_proxy_site_name: "myapp_production_proxy",
     nginx_upstream_host: "10.99.7.17",
     nginx_upstream_port: 3500,
     nginx_use_ssl: false,
     nginx_major_domain: false,
-    nginx_domains: ["moja.example.com"],
+    nginx_domains: ["myapp.example.com"],
     nginx_remove_www: true,
     allow_well_known_proxy: false,
     nginx_proxy_log_folder: "/var/log/nginx",

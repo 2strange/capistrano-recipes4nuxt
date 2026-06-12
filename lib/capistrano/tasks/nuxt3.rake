@@ -71,7 +71,7 @@ namespace :load do
     #    requirement: the SSR port (:nuxt3_ssr_port, default 3500) must be reachable
     #    ONLY by the proxy. HOW that isolation is achieved is the OPERATOR's / infra
     #    job (T4) and is NOT managed by the gem:
-    #      • Tailnet-only (Austin/moja): all traffic runs over Tailscale, NO public
+    #      • Tailnet-only setup: all traffic runs over Tailscale, NO public
     #        ports exist → binding 0.0.0.0 is already safe (reachable only via the
     #        tailnet). No firewall action needed; access control = Tailscale ACLs.
     #      • Only if a deployer is NOT tailnet-only (the box has a public interface):

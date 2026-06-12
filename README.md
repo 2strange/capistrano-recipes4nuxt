@@ -1,17 +1,19 @@
-# ✅ v1.0.0 — released (Stand 2026-06-12)
+# ✅ v1.0.0 — released (2026-06-12)
 
-Der erste reale **Nuxt-3-SSR-Deploy** ist auf **`moja.freaks.technology`** verifiziert
-(Nitro-systemd-Service, Proxy → Nitro direkt, Health-Check grün, Shared-Host-Nachbarn
-stabil) — die WIP-Sperre ist aufgehoben.
+The first real **Nuxt 3 SSR deploy** has been verified on a staging test site
+(Nitro systemd service, proxy → Nitro direct, health-check green, neighbouring sites
+on the shared host stayed up) — the WIP lock is lifted.
 
-**Empfohlen für NEUE Nuxt-3-SSR-Projekte.** Für **bestehende und reine Nuxt-2-Apps** bleibt
-[capistrano-nuxt2](https://github.com/2strange/capistrano-nuxt2) ein **gleichwertiger
-Standard** — kein Migrationszwang (Austin-Entscheid 2026-06-12).
+**Recommended for NEW Nuxt 3 SSR projects.** For **existing and pure Nuxt 2 apps**,
+[capistrano-nuxt2](https://github.com/2strange/capistrano-nuxt2) remains an **equally valid
+standard** — no forced migration.
 
-- **Migration nuxt2 → Nuxt-3-SSR:** [`docs/migration-nuxt2-to-nuxt3-ssr.md`](docs/migration-nuxt2-to-nuxt3-ssr.md)
-- **Deploy-Kontrakt / Architektur:** [`docs/DEPLOY_CONTRACT.md`](docs/DEPLOY_CONTRACT.md)
-- **Kanonischer Deploy-Ablauf:** `setup` → `deploy` (ssl:false) → `certbot:generate` → ssl:true → `deploy` (myTOOLZ `docs/deploy-runbook.md`)
-- ℹ️ **Content-Refresh (A2, swr + Purge):** der Purge-Endpoint ist FE-Revier — Referenz-Impl im `nuxt3_layer` (`server/api/_purge.post.ts`); Mechanik ist Nitro-intern → getestete Nitro-Version pinnen + Smoke-Test (`docs/PURGE_SMOKE_TEST.md`).
+- **Migration nuxt2 → Nuxt 3 SSR:** [`docs/migration-nuxt2-to-nuxt3-ssr.md`](docs/migration-nuxt2-to-nuxt3-ssr.md)
+- **Deploy contract / architecture:** [`docs/DEPLOY_CONTRACT.md`](docs/DEPLOY_CONTRACT.md)
+- **Canonical deploy sequence:** `setup` → `deploy` (ssl:false) → `certbot:generate` → ssl:true → `deploy`
+- ℹ️ **Content refresh (A2, swr + purge):** the purge endpoint is app/layer territory — reference
+  implementation lives in `nuxt3_layer` (`server/api/_purge.post.ts`); the mechanism relies on
+  Nitro internals → pin the tested Nitro version + run the smoke-test (`docs/PURGE_SMOKE_TEST.md`).
 
 ---
 
@@ -19,7 +21,7 @@ Standard** — kein Migrationszwang (Austin-Entscheid 2026-06-12).
 
 Capistrano recipes to deploy **Nuxt 2 and Nuxt 3** apps — proxy-ready, nvm-aware, nginx + certbot included.
 
-**Nachfolger von [capistrano-nuxt2](https://github.com/2strange/capistrano-nuxt2)** — version-agnostisch, kompatibel mit dem `recipes2go`-Setup inkl. Proxy-Config.
+**Successor to [capistrano-nuxt2](https://github.com/2strange/capistrano-nuxt2)** — version-agnostic, compatible with the `recipes2go` setup including its proxy config.
 
 
 ## Usage
@@ -245,37 +247,38 @@ restart the service cleanly.
 
 ## CHANGELOG
 
-### 0.8.0 — Etappe 2: A2 Content-Refresh (Gem-Seite) — G14 + G15
-- **G14 (Gem-Teil):** ENV/Port-Kontrakt für den A2-Purge-Endpoint dokumentiert
-  (`docs/migration-nuxt2-to-nuxt3-ssr.md` §10) — der BE→Nitro-`curl` zielt auf
-  `nuxt3_ssr_host:nuxt3_ssr_port`, das Auth-Token reist im bestehenden ENV-File
-  (`nuxt3_ssr.env`). `purging|admin-interface`-Flag-State **ehrlich abgegrenzt**:
-  wird **vom BE/Admin-Pfad** geschrieben, **nicht** vom Deploy-Gem (nur Lesekontrakt
-  + Datei-Seeding gehören dem Gem). Doku in `base_helpers.rb` + Contract §3.2.
-- **G15 (Gem-Teil):** Nitro-/Nuxt-**Version-Pin-Empfehlung** + Purge-**Smoke-Test-
-  Harness/Vorlage** geliefert (`docs/purge-smoke-test.sh` + `docs/PURGE_SMOKE_TEST.md`),
-  Begründung = undokumentierter routeRules-Cache-Purge (nuxt#20495).
-- **Der Purge-Endpoint selbst (`server/api/_purge`) + `swr`-routeRules = FE/Layer-Revier
-  (Luke), KEIN Gem-Code.** Die G15-Auflage erfüllt der Consumer mit SEINEM Endpoint.
-- **§5 1.0-Definition ehrlich gesplittet:** **1.0-A = Gem-Deploy-1.0** (Deploy-Kern,
-  release-fähig nach dem ausstehenden Re-Deploy-Verify) vs. **1.0-B = volle A2-Funktion**
-  (FE/BE-Follow-up, kein Gem-Blocker).
-- Smoke `test/a2_content_refresh_smoke_test.rb` grün.
+### 0.8.0 — Stage 2: A2 content refresh (gem side) — G14 + G15
+- **G14 (gem part):** documented the ENV/port contract for the A2 purge endpoint
+  (`docs/migration-nuxt2-to-nuxt3-ssr.md` §10) — the BE→Nitro `curl` targets
+  `nuxt3_ssr_host:nuxt3_ssr_port`, the auth token rides in the existing ENV file
+  (`nuxt3_ssr.env`). The `purging|admin-interface` flag state is **honestly scoped**:
+  it is written **by the BE/admin path**, **not** by the deploy gem (only the read
+  contract + file seeding belong to the gem). Docs in `base_helpers.rb` + Contract §3.2.
+- **G15 (gem part):** shipped a Nitro/Nuxt **version-pin recommendation** + a purge
+  **smoke-test harness/template** (`docs/purge-smoke-test.sh` + `docs/PURGE_SMOKE_TEST.md`),
+  rationale = the undocumented routeRules cache purge (nuxt#20495).
+- **The purge endpoint itself (`server/api/_purge`) + the `swr` routeRules are
+  app/layer territory, NOT gem code.** The consumer fulfils the G15 requirement with
+  THEIR endpoint.
+- **§5 1.0 definition split honestly:** **1.0-A = gem deploy 1.0** (deploy core,
+  release-ready after the pending re-deploy verify) vs. **1.0-B = full A2 feature**
+  (FE/BE follow-up, not a gem blocker).
+- Smoke test `test/a2_content_refresh_smoke_test.rb` green.
 
-### 0.6.0 – 0.7.0 — SSR-1.0 Etappe 1 (Deploy-Kern, P0-Gaps)
-- **G1** ENV-File-Kontrakt (`EnvironmentFile=-…/nuxt3_ssr.env` + `ssr:upload_env`/`check_env`).
-- **G2** Flag-States vervollständigt (`restarting|deploy`, `ERROR-<task>|deploy`).
-- **G3** Build-ENV-Sourcing (Build-ENV = Runtime-ENV) + `tee`-Build-Log-Fix im nvm-Zweig.
-- **G4** Erst-Deploy-Ergonomie (Unit-Autodetect → `ssr:configure` statt Restart).
-- **G5** Health-Check `nuxt3:ssr:verify` nach Restart (curl + Retry, Deploy failt laut).
-- **G12** Neutrale Deploy-Mode-Var `NUXT_APP_ENV`.
-- **G16** Cross-Host-Bind (`nuxt3_ssr_host=0.0.0.0`) + entkoppelter Health-Check-Host;
-  Port-Isolation = Operator-Infra (Tailscale), nicht Gem.
-- **Q5-Weichmacher** `proxy_next_upstream` zero-config im proxy_nginx-Template.
-- **G17** (0.7.0) App-Nginx-:ssr-Port-Kollision (war 502-Incident) deploy_mode-aware gefixt.
-- **G18** (0.7.0) base-require-Nuxt2-Hook-Footgun deploy_mode-aware gefixt.
+### 0.6.0 – 0.7.0 — SSR 1.0 stage 1 (deploy core, P0 gaps)
+- **G1** ENV-file contract (`EnvironmentFile=-…/nuxt3_ssr.env` + `ssr:upload_env`/`check_env`).
+- **G2** completed the flag states (`restarting|deploy`, `ERROR-<task>|deploy`).
+- **G3** build-ENV sourcing (build ENV = runtime ENV) + `tee` build-log fix in the nvm branch.
+- **G4** first-deploy ergonomics (unit auto-detect → `ssr:configure` instead of restart).
+- **G5** health-check `nuxt3:ssr:verify` after restart (curl + retry, deploy fails loudly).
+- **G12** neutral deploy-mode var `NUXT_APP_ENV`.
+- **G16** cross-host bind (`nuxt3_ssr_host=0.0.0.0`) + decoupled health-check host;
+  port isolation = operator infra (Tailscale), not the gem.
+- **Q5 softener** `proxy_next_upstream` zero-config in the proxy_nginx template.
+- **G17** (0.7.0) app-nginx `:ssr` port collision (was a 502 incident) fixed deploy_mode-aware.
+- **G18** (0.7.0) base-require Nuxt2 hook footgun fixed deploy_mode-aware.
 
-### 0.5.0 — Erstrelease (forked von capistrano-nuxt2 0.2.18; SSR noch WIP → 1.0 sobald vollständig)
+### 0.5.0 — Initial release (forked from capistrano-nuxt2 0.2.18; SSR still WIP → 1.0 once complete)
 - Forked from `capistrano-nuxt2` v0.2.18
 - Renamed gem to `capistrano-recipes4nuxt` (version-agnostic, matches `recipes2go` naming)
 - Ruby module namespace changed: `Capistrano::Nuxt2` -> `Capistrano::Recipes4nuxt`

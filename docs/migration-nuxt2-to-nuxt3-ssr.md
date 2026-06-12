@@ -4,8 +4,8 @@
 > Nuxt-3-`static`-Generate) auf `capistrano-recipes4nuxt` im **Nuxt-3-SSR-Modus**
 > (Nitro-systemd-Service) umstellen.
 >
-> Erstfassung destilliert aus dem **moja-Testbett** — dem ersten realen
-> recipes4nuxt-SSR-Deploy (Robert/moja + Tim/Cargo, 2026-06-12). Die dort
+> Erstfassung destilliert aus dem **Staging-Testbett** — dem ersten realen
+> recipes4nuxt-SSR-Deploy (2026-06-12). Die dort
 > aufgedeckten zwei Bugs (§3 base-require-Hook-Footgun, §7 App-Nginx-:ssr-Port-
 > Kollision) sind **ab Gem 0.7.0 deploy_mode-aware automatisch gefixt** — kein
 > Consumer-Workaround mehr nötig (Details unten + `docs/DEPLOY_CONTRACT.md` §5
@@ -256,8 +256,8 @@ unberührt halten. Bei SSR-Problemen den static-Branch redeployen → Seite ist 
 zurück.
 
 ---
-*Quelle: moja-Testbett, erster realer recipes4nuxt-SSR-Deploy (2026-06-12, Robert/moja
-+ Tim/Cargo). Kanonisch gepflegt in `capistrano-recipes4nuxt/docs/` — Cargo/Tim halten
+*Quelle: Staging-Testbett, erster realer recipes4nuxt-SSR-Deploy (2026-06-12).
+Kanonisch gepflegt in `capistrano-recipes4nuxt/docs/` — die Maintainer halten
 sie mit den Gem-Fixes aktuell. §3 + §7 (base-require-Hook-Footgun + App-Nginx-:ssr-
 Kollision) sind ab Gem 0.7.0 deploy_mode-aware automatisch gefixt (Contract §5 G17/G18).
 §10–§11 (Content-Refresh A2 + Purge-Smoke-Test/Version-Pin) = Gem-Seite 0.8.0; der

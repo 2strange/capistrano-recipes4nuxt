@@ -1,6 +1,6 @@
 # A2 Purge — Nitro-Version-Pin + Smoke-Test (Contract G15)
 
-> **Pflicht-Auflage zu A2, nicht optional** (Austin 2026-06-11, `DEPLOY_CONTRACT.md`
+> **Pflicht-Auflage zu A2, nicht optional** (der Maintainer 2026-06-11, `DEPLOY_CONTRACT.md`
 > §6a/§5/G15). Diese Datei + `docs/purge-smoke-test.sh` sind die **Gem-Lieferung**
 > für G15. Der eigentliche Purge-**Endpoint** ist FE/Layer-Code (Luke), **nicht** das
 > Gem — die Auflage **erfüllt der Consumer mit seinem Endpoint**.
