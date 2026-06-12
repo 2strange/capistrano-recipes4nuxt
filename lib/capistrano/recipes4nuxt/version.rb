@@ -1,5 +1,5 @@
 module Capistrano
   module Recipes4nuxt
-    VERSION = "0.8.0"
+    VERSION = "1.0.0"
   end
 end

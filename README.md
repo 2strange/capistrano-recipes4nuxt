@@ -1,21 +1,17 @@
-# ⚠️ WIP — NICHT VERWENDEN (Stand 2026-06-11)
+# ✅ v1.0.0 — released (Stand 2026-06-12)
 
-**Dieses Gem ist Work-in-Progress und für KEIN Produktiv-Projekt freigegeben** — weder neue
-noch bestehende. Es wurde noch **nie durch einen echten Deploy verifiziert**.
+Der erste reale **Nuxt-3-SSR-Deploy** ist auf **`moja.freaks.technology`** verifiziert
+(Nitro-systemd-Service, Proxy → Nitro direkt, Health-Check grün, Shared-Host-Nachbarn
+stabil) — die WIP-Sperre ist aufgehoben.
 
-**Aber: aktiv in 1.0-Entwicklung.** Der Deploy-Kontrakt ist finalisiert (alle Entscheide
-getroffen) → [`docs/DEPLOY_CONTRACT.md`](docs/DEPLOY_CONTRACT.md) = verbindliche 1.0-Roadmap
-(Prio-Gaps §5, Umsetzungs-Reihenfolge §7). Umgesetzt + verifiziert wird auf dem
-**moja-Deploy-Testbett** (zusammen mit Robert/moja).
+**Empfohlen für NEUE Nuxt-3-SSR-Projekte.** Für **bestehende und reine Nuxt-2-Apps** bleibt
+[capistrano-nuxt2](https://github.com/2strange/capistrano-nuxt2) ein **gleichwertiger
+Standard** — kein Migrationszwang (Austin-Entscheid 2026-06-12).
 
-**Umstieg von `capistrano-nuxt2` auf den Nuxt-3-SSR-Modus:**
-[`docs/migration-nuxt2-to-nuxt3-ssr.md`](docs/migration-nuxt2-to-nuxt3-ssr.md)
-(Capfile/Gemfile/Stage-Config, ENV-Kontrakt, First-Deploy-Choreografie, Verify).
-
-**Standard für alle Nuxt-Deploys bleibt [capistrano-nuxt2](https://github.com/2strange/capistrano-nuxt2)** —
-bis dieses Gem **ALLE Funktionen** des Vorgängers übernommen hat und der kanonische
-Deploy-Ablauf (`setup` → `deploy` ssl:false → `certbot:generate` → ssl:true → `deploy`,
-siehe myTOOLZ `docs/deploy-runbook.md`) auf einem echten Server verifiziert wurde.
+- **Migration nuxt2 → Nuxt-3-SSR:** [`docs/migration-nuxt2-to-nuxt3-ssr.md`](docs/migration-nuxt2-to-nuxt3-ssr.md)
+- **Deploy-Kontrakt / Architektur:** [`docs/DEPLOY_CONTRACT.md`](docs/DEPLOY_CONTRACT.md)
+- **Kanonischer Deploy-Ablauf:** `setup` → `deploy` (ssl:false) → `certbot:generate` → ssl:true → `deploy` (myTOOLZ `docs/deploy-runbook.md`)
+- ℹ️ **Content-Refresh (A2, swr + Purge):** der Purge-Endpoint ist FE-Revier — Referenz-Impl im `nuxt3_layer` (`server/api/_purge.post.ts`); Mechanik ist Nitro-intern → getestete Nitro-Version pinnen + Smoke-Test (`docs/PURGE_SMOKE_TEST.md`).
 
 ---
 
@@ -23,7 +19,7 @@ siehe myTOOLZ `docs/deploy-runbook.md`) auf einem echten Server verifiziert wurd
 
 Capistrano recipes to deploy **Nuxt 2 and Nuxt 3** apps — proxy-ready, nvm-aware, nginx + certbot included.
 
-**Designierter Nachfolger von [capistrano-nuxt2](https://github.com/2strange/capistrano-nuxt2)** — version-agnostisch, kompatibel mit dem `recipes2go`-Setup inkl. Proxy-Config.
+**Nachfolger von [capistrano-nuxt2](https://github.com/2strange/capistrano-nuxt2)** — version-agnostisch, kompatibel mit dem `recipes2go`-Setup inkl. Proxy-Config.
 
 
 ## Usage
