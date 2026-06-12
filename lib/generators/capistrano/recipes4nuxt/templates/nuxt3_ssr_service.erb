@@ -21,15 +21,17 @@ WorkingDirectory=<%= shared_path %>/<%= fetch(:nuxt3_output_folder) %>
 #     (recipes2go/proxy_nginx pattern) → Nitro must bind all interfaces so the
 #     remote proxy can reach it. Unlike recipes2go puma/thin (App-Nginx fronts a
 #     unix socket), there is NO App-Nginx in front of Nitro here.
-#   ⚠️ SECURITY (mandatory when host = 0.0.0.0): the App box MUST firewall this
-#      port down to the proxy IP / Tailnet only — otherwise the bare Nitro
-#      process is open on the LAN. This is a SOURCE-RESTRICTED rule and a
-#      one-time T4/infra step (Austin), NOT a per-deploy Capistrano task:
-#        ufw allow from <proxy-tailnet-ip> to any port <port> proto tcp
-#      Do NOT use `ufw allow <port>` / `set :ufw_additional_ports, [<port>]` —
-#      that opens the port to EVERYONE (the opposite of the requirement).
-#      recipes2go `ufw` can only do bare allows (no `from <ip>`); recipes4nuxt
-#      deliberately ships no ufw recipe. See Contract §4.5 / G16.
+#   ⚠️ SECURITY (when host = 0.0.0.0): the bare Nitro process then listens on all
+#      interfaces. The requirement is only that this port be reachable ONLY by the
+#      proxy. HOW that isolation is done is OPERATOR/infra (T4) — NOT the gem:
+#        • tailnet-only (Austin/moja): traffic runs over Tailscale, NO public ports
+#          exist → 0.0.0.0 is already safe; access control = Tailscale ACLs. No
+#          firewall action needed.
+#        • only if NOT tailnet-only (box has a public interface): the deployer
+#          isolates the port themselves (firewall/VPN). recipes2go `ufw` is unfit
+#          (bare allows only, no `from <ip>`, `ufw --force reset`).
+#      recipes4nuxt ships no ufw recipe; do NOT use `ufw_additional_ports` or a
+#      per-deploy ufw task here. See Contract §4.5 / G16.
 Environment=NODE_ENV=production
 Environment=NITRO_HOST=<%= fetch(:nuxt3_ssr_host) %>
 Environment=NITRO_PORT=<%= fetch(:nuxt3_ssr_port) %>

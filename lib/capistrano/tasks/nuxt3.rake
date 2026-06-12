@@ -65,19 +65,21 @@ namespace :load do
     #   Cross-Host   (Proxy on ANOTHER box, recipes2go/proxy_nginx pattern)
     #                                                → set :nuxt3_ssr_host, "0.0.0.0"
     #                                                  (or the App-LXC LAN IP)
-    # ⚠️ SECURITY (mandatory when host = 0.0.0.0): the App box MUST firewall the
-    #    SSR port (:nuxt3_ssr_port, default 3500) down to the proxy/Tailnet only —
-    #    otherwise the bare Nitro process is exposed on the LAN. There is NO
-    #    App-Nginx in front of Nitro in the SSR path (unlike recipes2go puma/thin,
-    #    where the App-Nginx fronts a unix socket), so the gem cannot do this for
-    #    you. The correct fix is a SOURCE-RESTRICTED ufw rule and a one-time
-    #    T4/infra step (Austin), NOT a per-deploy Capistrano task:
-    #        ufw allow from <proxy-tailnet-ip> to any port <port> proto tcp
-    #    Do NOT use `ufw allow <port>` / `set :ufw_additional_ports, [<port>]` —
-    #    that opens the port to EVERYONE (the opposite of the requirement).
-    #    recipes2go `ufw` can only do bare allows (no `from <ip>`) and resets all
-    #    rules on each `ufw:setup`; recipes4nuxt deliberately ships no ufw recipe
-    #    (security-sensitive firewall = T4, not gem automation). Contract §4.5/G16.
+    # ⚠️ SECURITY (when host = 0.0.0.0): the bare Nitro process then listens on all
+    #    interfaces — there is NO App-Nginx in front of it (unlike recipes2go
+    #    puma/thin, where the App-Nginx fronts a unix socket). recipes4nuxt's only
+    #    requirement: the SSR port (:nuxt3_ssr_port, default 3500) must be reachable
+    #    ONLY by the proxy. HOW that isolation is achieved is the OPERATOR's / infra
+    #    job (T4) and is NOT managed by the gem:
+    #      • Tailnet-only (Austin/moja): all traffic runs over Tailscale, NO public
+    #        ports exist → binding 0.0.0.0 is already safe (reachable only via the
+    #        tailnet). No firewall action needed; access control = Tailscale ACLs.
+    #      • Only if a deployer is NOT tailnet-only (the box has a public interface):
+    #        THEY isolate the port (firewall/VPN). recipes2go `ufw` is unfit for this
+    #        — it only does bare `ufw allow <port>` (opens it to EVERYONE), no
+    #        `from <ip>`, and `ufw:setup` does a `ufw --force reset`.
+    #    The gem ships no ufw recipe; do NOT use `set :ufw_additional_ports, [<port>]`
+    #    or a per-deploy ufw task here. Isolation = operator/infra. Contract §4.5/G16.
     set :nuxt3_ssr_host,          -> { "127.0.0.1" }
     # PLACEHOLDER default – override per stage (analog :nginx_upstream_port).
     # Point the proxy here:  set :nginx_upstream_port, fetch(:nuxt3_ssr_port)
@@ -120,7 +122,7 @@ namespace :nuxt3 do
       puts "🔧 Nuxt 3 SSR bind:     #{fetch(:nuxt3_ssr_host)}:#{fetch(:nuxt3_ssr_port)}"
       puts "🔧 Nuxt 3 SSR healthchk: #{fetch(:nuxt3_ssr_healthcheck_host)}:#{fetch(:nuxt3_ssr_port)}"
       if fetch(:nuxt3_ssr_host).to_s != "127.0.0.1"
-        puts "⚠️  Nuxt 3 SSR binds non-loopback (#{fetch(:nuxt3_ssr_host)}) — source-restrict #{fetch(:nuxt3_ssr_port)} to the proxy/Tailnet ONLY (T4/infra, Austin): ufw allow from <proxy-ip> to any port #{fetch(:nuxt3_ssr_port)} proto tcp. Do NOT `ufw allow <port>` (opens it public). Contract §4.5/G16."
+        puts "⚠️  Nuxt 3 SSR binds non-loopback (#{fetch(:nuxt3_ssr_host)}) — port #{fetch(:nuxt3_ssr_port)} must be reachable ONLY by the proxy. That isolation is OPERATOR/infra (T4), NOT the gem: tailnet-only setups (Tailscale, no public ports) are already safe via Tailscale ACLs; only a NON-tailnet box needs its own firewall/VPN. Contract §4.5/G16."
       end
       puts "🔧 Nuxt 3 SSR ENV file: #{nuxt3_remote_env_file}"
     end

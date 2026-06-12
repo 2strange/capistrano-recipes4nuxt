@@ -282,12 +282,12 @@ Box:
 passenden nginx-Upstream). Zwei Instanzen auf demselben Port → die zweite Unit startet nicht
 (`EADDRINUSE`).
 
-### 4.5 Bind-Host: Single-Host vs. Cross-Host-Proxy (G16, ⚠️ Firewall-Pflicht)
+### 4.5 Bind-Host: Single-Host vs. Cross-Host-Proxy (G16 — Port-Isolation = Operator/Infra)
 
 > ✅ **Umgesetzt GEM-seitig (feat/ssr-1.0, 2026-06-11, Cargo).** Aufgedeckt vom moja-Testbett
-> (Robert): moja deployt im **Cross-Host-Proxy-Setup** — öffentlicher Proxy-LXC proxyt auf eine
-> **andere** App-LXC (Nitro). Der bisherige Default `nuxt3_ssr_host = 127.0.0.1` ist dort
-> cross-host **unerreichbar**.
+> (Robert): moja deployt im **Cross-Host-Proxy-Setup** — Proxy-LXC proxyt auf eine **andere**
+> App-LXC (Nitro). Der bisherige Default `nuxt3_ssr_host = 127.0.0.1` ist dort cross-host
+> **unerreichbar**.
 
 Nitro bindet `NITRO_HOST`/`HOST` = `fetch(:nuxt3_ssr_host)`. Es gibt **zwei Topologien**:
 
@@ -302,36 +302,31 @@ set :nuxt3_ssr_host, "0.0.0.0"     # Nitro auf allen Interfaces
 # (Single-Host: nichts setzen → bleibt 127.0.0.1)
 ```
 
-⚠️ **SICHERHEITS-AUFLAGE (Pflicht, wenn `nuxt3_ssr_host = 0.0.0.0`):** Lauscht Nitro auf
-`0.0.0.0`, ist der **rohe Node-Prozess offen im LAN** — anders als bei recipes2go puma/thin gibt
+⚠️ **AUFLAGE (wenn `nuxt3_ssr_host = 0.0.0.0`):** Lauscht Nitro auf `0.0.0.0`, ist der **rohe
+Node-Prozess** auf allen Interfaces der App-Box erreichbar — anders als bei recipes2go puma/thin gibt
 es **keinen App-Nginx vor Nitro** (dort fronten App-Nginx + unix-Socket den App-Prozess, hier
-spricht der Proxy direkt mit dem Nitro-TCP-Port). Die App-LXC **MUSS** daher den SSR-Port
-(`:nuxt3_ssr_port`, Default 3500) per **quell-beschränkter Firewall-Regel** auf die **Proxy-IP /
-das Tailnet** beschränken — öffentlich/LAN bleibt dicht:
+spricht der Proxy direkt mit dem Nitro-TCP-Port). recipes4nuxt verlangt deshalb nur **eine** Sache:
+der SSR-Port (`:nuxt3_ssr_port`, Default 3500) muss **ausschließlich vom Proxy erreichbar** sein.
+**WIE** diese Isolation erreicht wird, ist **Operator-/Infra-Sache (T4) — und NICHT vom Gem
+verwaltet.** Das Gem bindet nur; die Netz-Topologie bestimmt der Deployer.
 
-```sh
-# Auf der App-LXC, einmalig, vom Infra-Verantwortlichen (siehe T4-Hinweis unten):
-ufw allow from <proxy-tailnet-ip> to any port <nuxt3_ssr_port> proto tcp
-```
-
-> 🔒 **Das ist ein T4-Infra-Schritt (Austin), KEIN per-Deploy-Capistrano-Task.** Begründung:
-> - **NICHT** `ufw allow <port>` / **NICHT** `set :ufw_additional_ports, [3500]` verwenden — beides
->   macht ein nacktes `ufw allow <port>`, das den Port **öffentlich für ALLE** (LAN + extern) öffnet.
->   Das ist das **Gegenteil** der Auflage: Nitro auf `0.0.0.0` **plus** Port offen = der Node-Prozess
->   ist exponiert.
-> - recipes2gos `ufw`-Recipe (`lib/capistrano/tasks/ufw.rake`) kann **nur** `ufw allow <port>` und
->   **keine quell-beschränkten** Regeln (`from <ip>`) — es kann die Auflage also gar nicht korrekt
->   umsetzen. Zusätzlich macht sein `ufw:setup` ein `ufw --force reset`, das eine manuell gesetzte
->   `from`-Regel beim nächsten Lauf wieder **wegräumt**.
-> - **recipes4nuxt hat bewusst KEIN ufw-Recipe.** Eine security-sensitive Firewall-Regel gehört nach
->   T4/Infra (Austin), nicht in eine Gem-Automatik — analog zu „Deploy-Configs/Secrets ≠ Repo".
-
-> **Künftiger Gap (NICHT jetzt bauen):** Ob recipes4nuxt perspektivisch einen *quell-beschränkten*
-> Firewall-Helfer bekommen soll (z. B. einen Task, der `ufw allow from <proxy-ip> to any port <port>
-> proto tcp` setzt, idempotent + reset-fest), ist offen. **Default-Haltung: Firewall bleibt T4/Infra
-> (Austin)** — eine security-sensitive Regel über Gem-Automatik auszurollen birgt mehr Risiko als
-> Nutzen (falsche IP / `--force reset`-Wechselwirkungen / Lock-out). Erst bauen, wenn ein konkreter
-> Bedarf das rechtfertigt und Austin es freigibt.
+> 🔒 **Isolation = Operator-Infra, nicht Gem-Automatik.** Wie der Port „nur vom Proxy erreichbar"
+> wird, hängt allein an der Topologie des Deployers:
+> - **Tailnet-only (Austins/moja-Topologie — der reale, empfohlene Isolations-Layer):** Die Infra
+>   läuft komplett über **Tailscale**, es gibt **keine offenen Public-Ports**. Damit ist Nitro auf
+>   `0.0.0.0` **inhärent sicher** — erreichbar **nur** über den Tailnet (Proxy ↔ App), nichts
+>   Öffentliches existiert, das man beschränken müsste. **Keine Firewall-Aktion nötig.**
+>   Zugangskontrolle = **Tailscale-ACLs** (Infra/T4), nicht host-Firewall.
+> - **Nur falls NICHT tailnet-only** (die App-Box hat ein echtes Public-Interface): Dann muss der
+>   **Deployer** den Port selbst isolieren — z. B. quell-beschränkte Firewall-Regel **oder** VPN/Tailnet.
+>   Eine Möglichkeit wäre `ufw allow from <proxy-ip> to any port <nuxt3_ssr_port> proto tcp`. ⚠️ Achtung:
+>   recipes2gos `ufw` taugt dafür **nicht** — es kann **nur** nackte `ufw allow <port>` (öffnet den Port
+>   für ALLE — das **Gegenteil** der Auflage), **keine** quell-beschränkten `from <ip>`-Regeln, und sein
+>   `ufw:setup` macht ein `ufw --force reset`, das eine manuell gesetzte `from`-Regel wieder wegräumt.
+> - **recipes4nuxt hat bewusst KEIN ufw-Recipe** und managt die Isolation nicht — `:ufw_additional_ports`
+>   bzw. ein per-Deploy-ufw-Task haben hier **nichts zu suchen**. Die Isolation gehört nach T4/Infra
+>   (Tailscale-ACLs bzw., falls public-exponiert, Firewall/VPN des Deployers) — analog zu
+>   „Deploy-Configs/Secrets ≠ Repo".
 
 > **Health-Check entkoppelt (G16):** `nuxt3:ssr:verify` curlt nicht den Bind-Host, sondern den
 > separaten **`:nuxt3_ssr_healthcheck_host`** (Default `127.0.0.1`). Der Check läuft **lokal auf
@@ -364,7 +359,7 @@ Bestehendes (zero-config-safe).
 | G5 | **Health-Check** `nuxt3:ssr:verify` nach Restart (curl `127.0.0.1:<port>` mit Retry, Deploy schlägt fehl statt still kaputt); ans Hook-Ende — **✅ Etappe 1 gebaut (feat/ssr-1.0)** | **P0** | | S |
 | G14 | **Content-Refresh-Mechanik (A2)**: FE-seitig interner Purge-Endpoint + `swr`-routeRules (FE/Layer-Revier); Gem-Seite klein — Purge-Konvention dokumentieren, ENV/Port-Kontrakt für den Endpoint sichern (kein Cache-Driver-Mount nötig, da A2 prozess-intern). Blockt den slots-Admin-Trigger. | **P0** | **✅ A2** | M (klein gem-seitig) |
 | G15 | **Purge-Smoke-Test + Nitro-Version-Pin (A2-Auflage, Austin 2026-06-11)**: routeRules-`swr`-Cache hat **kein First-Class-Invalidierungs-API** (nuxt#20495); Purge über Storage-Key-Prefix `nitro:routeRules` ist **internes/undokumentiertes** Verhalten → **Pflicht:** Pin auf getestete Nitro-Version **+** Smoke-Test, der den Purge real verifiziert. **Nicht optional** — Bestandteil der 1.0-Freigabe. | **P0** | **✅ A2** | S–M |
-| G16 | **Cross-Host-Bind + Firewall-Auflage (§4.5, moja-Testbett Robert 2026-06-11)**: Cross-Host-Proxy-Setup braucht `nuxt3_ssr_host=0.0.0.0` (Single-Host bleibt 127.0.0.1); ⚠️ **Pflicht: quell-beschränkte Firewall-Regel** des SSR-Ports auf Proxy/Tailnet (`ufw allow from <proxy-ip> to any port <port> proto tcp`), da kein App-Nginx vor Nitro — **NICHT** `ufw allow <port>`/`ufw_additional_ports` (öffnet öffentlich); recipes2go-`ufw` kann keine Quell-Beschränkung, recipes4nuxt hat bewusst kein ufw → **T4-Infra-Schritt (Austin), kein per-Deploy-Task**. Health-Check über separaten `:nuxt3_ssr_healthcheck_host` (Default 127.0.0.1) vom Bind-Host entkoppelt. **✅ Gem-Teil gebaut (feat/ssr-1.0)** — Doku/Defaults/verify; die quell-beschränkte Firewall-Regel ist T4-Infra (Austin). | **P0** | | S |
+| G16 | **Cross-Host-Bind + Port-Isolation (§4.5, moja-Testbett Robert 2026-06-11)**: Cross-Host-Proxy-Setup braucht `nuxt3_ssr_host=0.0.0.0` (Single-Host bleibt 127.0.0.1); Auflage: der SSR-Port muss **nur vom Proxy erreichbar** sein (kein App-Nginx vor Nitro). **WIE** = **Operator-/Infra-Sache (T4), NICHT vom Gem verwaltet**: Austins/moja-Topologie ist **Tailscale tailnet-only** → keine Public-Ports, inhärent sicher, **keine Firewall-Aktion nötig** (Zugang via Tailscale-ACLs). Nur falls ein Deployer NICHT tailnet-only ist (Public-Interface), isoliert **er** den Port (Firewall/VPN) — recipes2go-`ufw` taugt dafür nicht (nur nackte allows, kein `from`, `--force reset`). recipes4nuxt hat bewusst kein ufw; `ufw_additional_ports`/per-Deploy-ufw-Task haben hier nichts zu suchen. Health-Check über separaten `:nuxt3_ssr_healthcheck_host` (Default 127.0.0.1) vom Bind-Host entkoppelt. **✅ Gem-Teil gebaut (feat/ssr-1.0)** — Doku/Defaults/verify; Port-Isolation = Operator-Infra (Tailscale). | **P0** | | S |
 | G9 | **Tests (Dexter)**: Specs für Task-Verkabelung + ERB-Template-Rendering (Unit-File mit/ohne ENV-File, nvm an/aus) | **P1** | | M |
 | G10 | **Docs (Homer)**: README-SSR-Abschnitt mit diesem Kontrakt abgleichen; Migrations-Guide nuxt2→recipes4nuxt (inkl. „Worker → `curl`-Purge umbauen") | **P1** | (Teil) | S |
 | G6 | **Monit-Pairing**: Monit-Template für die Nitro-Unit (PIDFile existiert schon), analog recipes2go `monit.rake` | **P1** | | M |
@@ -378,8 +373,8 @@ Bestehendes (zero-config-safe).
 
 **1.0 ist erreicht, wenn ALLE folgenden Bedingungen erfüllt sind:**
 
-1. **Alle P0-Gaps umgesetzt:** G1, G2, G3, G4, G5, **G16** (Kern-SSR-Deploy inkl. Cross-Host-Bind +
-   Firewall-Auflage) **+ G14 + G15** (Content-Refresh A2 inkl. der **Pflicht-Auflage**
+1. **Alle P0-Gaps umgesetzt:** G1, G2, G3, G4, G5, **G16** (Kern-SSR-Deploy inkl. Cross-Host-Bind;
+   Port-Isolation = Operator-Infra/Tailscale, nicht Gem) **+ G14 + G15** (Content-Refresh A2 inkl. der **Pflicht-Auflage**
    Nitro-Version-Pin + Purge-Smoke-Test — nicht optional).
 2. **P1-Gaps** (G9, G10, G6, G11, G12) nach Tim-Priorisierung grün; mindestens G9 (Tests) + G10 (Docs).
 3. **P2-Gaps** (G7, G8, G13) dürfen post-1.0.
