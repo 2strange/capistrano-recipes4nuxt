@@ -8,6 +8,10 @@ getroffen) → [`docs/DEPLOY_CONTRACT.md`](docs/DEPLOY_CONTRACT.md) = verbindlic
 (Prio-Gaps §5, Umsetzungs-Reihenfolge §7). Umgesetzt + verifiziert wird auf dem
 **moja-Deploy-Testbett** (zusammen mit Robert/moja).
 
+**Umstieg von `capistrano-nuxt2` auf den Nuxt-3-SSR-Modus:**
+[`docs/migration-nuxt2-to-nuxt3-ssr.md`](docs/migration-nuxt2-to-nuxt3-ssr.md)
+(Capfile/Gemfile/Stage-Config, ENV-Kontrakt, First-Deploy-Choreografie, Verify).
+
 **Standard für alle Nuxt-Deploys bleibt [capistrano-nuxt2](https://github.com/2strange/capistrano-nuxt2)** —
 bis dieses Gem **ALLE Funktionen** des Vorgängers übernommen hat und der kanonische
 Deploy-Ablauf (`setup` → `deploy` ssl:false → `certbot:generate` → ssl:true → `deploy`,
