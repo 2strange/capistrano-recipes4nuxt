@@ -54,10 +54,23 @@ module Capistrano
 
       # === Flag-file state helpers (G2, Contract §3.1) ===
       # The Admin/Backend UI reads `_builded_app` as one line `<state>|<actor>`,
-      # mtime = last status change. States in the SSR path (actor = deploy):
+      # mtime = last status change.
+      #
+      # DEPLOY-written states (actor = deploy — this gem writes them, below):
       #   installing → building → syncing → restarting → success
-      # plus ERROR-<task>|deploy on failure so the UI can tell a hung deploy
-      # from a broken one.
+      #   plus ERROR-<task>|deploy on failure, so the UI can tell a hung deploy
+      #   from a broken one.
+      #
+      # ADMIN-written state (actor = admin-interface — A2 / Content-Refresh, G14):
+      #   purging|admin-interface  — written when the Admin "rebuild/refresh"
+      #   button purges the Nitro route-rule caches. ⚠️ HONEST SCOPE: in A2 the
+      #   purge is a BE→Nitro `curl` to an internal FE purge endpoint; the DEPLOY
+      #   GEM never writes `purging|admin-interface`. It is produced by the
+      #   BE worker / Admin path (Bill/Luke revier), NOT by `nuxt3.rake`. The gem
+      #   only OWNS the read-contract (the file is a linked_file the gem seeds in
+      #   :setup_app) and documents the slot — the actual write lives app-side.
+      #   `generating|deploy` (npm re-render) does NOT occur in the SSR/A2 path
+      #   (that was the rejected Variante-B behaviour). See Contract §3.2 / §6a.
       def nuxt3_remote_env_file
         "#{shared_path}/config/#{fetch(:nuxt3_ssr_env_file)}"
       end

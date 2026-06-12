@@ -1,5 +1,10 @@
 # DEPLOY_CONTRACT.md — Nitro-SSR-Deploy-Kontrakt (recipes4nuxt)
 
+> **Bau-Stand 0.8.0 (2026-06-12, Cargo):** Etappe 1 (Deploy-Kern G1–G5/G16/G17/G18) ✅ + Etappe 2
+> **Gem-Seite** von A2 (G14/G15) ✅ gebaut. Die §5-1.0-Definition ist jetzt **ehrlich in 1.0-A
+> (Gem-Deploy-1.0) und 1.0-B (FE-A2-Funktion) getrennt** — der A2-Purge-**Endpoint** ist FE/Layer-Revier
+> (Luke), nicht Gem-Code. **Einzige offene Gem-Verifikation:** Re-Deploy-Verify (Robert/moja).
+>
 > **Status: ✅ KONTRAKT FINALISIERT (alle Entscheide getroffen, Stand 2026-06-11)** —
 > Branch `design/nitro-deploy-contract`. **Umsetzung blockiert bis recipes4nuxt-WIP-Entsperrung**
 > (Merge-/Freigabe-Entscheid: Tim mit Austin). Dieses Dokument ist ab jetzt der **verbindliche
@@ -185,6 +190,11 @@ Was das konkret heißt (Variante A2):
   hinzu — der Akteur-Teil (`admin-interface` vs `deploy`) trennt weiterhin „Admin hat getriggert"
   von „Deployment lief". `generating|deploy` (npm-Re-Render) taucht im SSR-Pfad **nicht** auf
   (das wäre das verworfene Variante-B-Verhalten).
+  ⚠️ **Ehrliche Schreib-Abgrenzung (0.8.0):** `purging|admin-interface` wird **NICHT vom
+  Deploy-Gem** geschrieben — der Purge ist ein BE→Nitro-`curl`, der State kommt vom
+  **BE-Worker / Admin-Pfad** (Bill/Luke). Das Gem **besitzt nur den Lesekontrakt**: es legt
+  `_builded_app` als `linked_file` an (`setup_app`) und schreibt die `deploy`-States; den
+  `admin-interface`-State setzt die App-Seite. (Doku: `base_helpers.rb` Flag-State-Header.)
 
 **Revier-Abgrenzung (A2):** recipes4nuxt liefert die **Deploy-/Task-Seite** (Tasks, Unit-Template);
 der Purge-Endpoint lebt im **FE/Layer** (Luke / ggf. Tim-Layer, wiederverwendbar), der **Admin-Button
@@ -357,8 +367,8 @@ Bestehendes (zero-config-safe).
 | G3 | **Build-Logs + Build-ENV**: `nuxt build` loggt heute NICHT nach `_builded_logs` (nur `generate`, und auch dort fehlt das `tee` im nvm-Zweig — Bug); Build-Tasks sourcen das ENV-File (§4.3) — **✅ Etappe 1 gebaut (feat/ssr-1.0)** | **P0** | | S–M |
 | G4 | **Erst-Deploy-Ergonomie**: Hook prüft `systemctl cat <unit>` — Unit fehlt → automatisch `ssr:configure` statt Restart; `nuxt3_ssr_hooks=false`-Tanz entfällt — **✅ Etappe 1 gebaut (feat/ssr-1.0)** | **P0** | | S |
 | G5 | **Health-Check** `nuxt3:ssr:verify` nach Restart (curl `127.0.0.1:<port>` mit Retry, Deploy schlägt fehl statt still kaputt); ans Hook-Ende — **✅ Etappe 1 gebaut (feat/ssr-1.0)** | **P0** | | S |
-| G14 | **Content-Refresh-Mechanik (A2)**: FE-seitig interner Purge-Endpoint + `swr`-routeRules (FE/Layer-Revier); Gem-Seite klein — Purge-Konvention dokumentieren, ENV/Port-Kontrakt für den Endpoint sichern (kein Cache-Driver-Mount nötig, da A2 prozess-intern). Blockt den slots-Admin-Trigger. | **P0** | **✅ A2** | M (klein gem-seitig) |
-| G15 | **Purge-Smoke-Test + Nitro-Version-Pin (A2-Auflage, Austin 2026-06-11)**: routeRules-`swr`-Cache hat **kein First-Class-Invalidierungs-API** (nuxt#20495); Purge über Storage-Key-Prefix `nitro:routeRules` ist **internes/undokumentiertes** Verhalten → **Pflicht:** Pin auf getestete Nitro-Version **+** Smoke-Test, der den Purge real verifiziert. **Nicht optional** — Bestandteil der 1.0-Freigabe. | **P0** | **✅ A2** | S–M |
+| G14 | **Content-Refresh-Mechanik (A2)**: FE-seitig interner Purge-Endpoint + `swr`-routeRules (FE/Layer-Revier); Gem-Seite klein — Purge-Konvention dokumentieren, ENV/Port-Kontrakt für den Endpoint sichern (kein Cache-Driver-Mount nötig, da A2 prozess-intern). Blockt den slots-Admin-Trigger. **✅ GEM-Teil gebaut (0.8.0, feat/ssr-1.0)**: ENV/Port-Kontrakt dokumentiert (migration §10), `purging\|admin-interface`-Flag-State **ehrlich abgegrenzt** (BE/Admin-geschrieben, NICHT vom Deploy-Gem — base_helpers.rb Doku + §3.2). **FE-Teil offen = Revier Luke/Layer** (Purge-Endpoint `server/api/_purge` + `swr`-routeRules + Cache-Status-Signal). | **P0** | **✅ A2** | M (klein gem-seitig) |
+| G15 | **Purge-Smoke-Test + Nitro-Version-Pin (A2-Auflage, Austin 2026-06-11)**: routeRules-`swr`-Cache hat **kein First-Class-Invalidierungs-API** (nuxt#20495); Purge über Storage-Key-Prefix `nitro:routeRules` ist **internes/undokumentiertes** Verhalten → **Pflicht:** Pin auf getestete Nitro-Version **+** Smoke-Test, der den Purge real verifiziert. **Nicht optional** — Bestandteil der 1.0-Freigabe. **✅ GEM-Teil gebaut (0.8.0, feat/ssr-1.0)**: Pin-Empfehlung + Smoke-Test-Harness/Vorlage (`docs/purge-smoke-test.sh` + `docs/PURGE_SMOKE_TEST.md`) geliefert. **Auflage erfüllt der Consumer mit SEINEM Endpoint** (Gem hat keinen Endpoint zum Testen) — Verifikation = Consumer/FE-Revier. | **P0** | **✅ A2** | S–M |
 | G16 | **Cross-Host-Bind + Port-Isolation (§4.5, moja-Testbett Robert 2026-06-11)**: Cross-Host-Proxy-Setup braucht `nuxt3_ssr_host=0.0.0.0` (Single-Host bleibt 127.0.0.1); Auflage: der SSR-Port muss **nur vom Proxy erreichbar** sein (kein App-Nginx vor Nitro). **WIE** = **Operator-/Infra-Sache (T4), NICHT vom Gem verwaltet**: Austins/moja-Topologie ist **Tailscale tailnet-only** → keine Public-Ports, inhärent sicher, **keine Firewall-Aktion nötig** (Zugang via Tailscale-ACLs). Nur falls ein Deployer NICHT tailnet-only ist (Public-Interface), isoliert **er** den Port (Firewall/VPN) — recipes2go-`ufw` taugt dafür nicht (nur nackte allows, kein `from`, `--force reset`). recipes4nuxt hat bewusst kein ufw; `ufw_additional_ports`/per-Deploy-ufw-Task haben hier nichts zu suchen. Health-Check über separaten `:nuxt3_ssr_healthcheck_host` (Default 127.0.0.1) vom Bind-Host entkoppelt. **✅ Gem-Teil gebaut (feat/ssr-1.0)** — Doku/Defaults/verify; Port-Isolation = Operator-Infra (Tailscale). | **P0** | | S |
 | G17 | **App-Nginx-:ssr-Port-Kollision (P0 — war INCIDENT, moja-Testbett Robert 2026-06-12)**: im `:ssr`-Mode legte `proxy_nginx` TROTZDEM einen App-Nginx auf `nginx_upstream_port` (= `nuxt3_ssr_port`) an → kollidiert mit Nitro auf demselben Port → `nginx -t` wird **host-weit** ungültig → `systemctl restart nginx` failt → **alle Sites des App-Hosts liefern 502** (auf moja Shared-Host: moja-lms + moja-api mitgerissen, manuelles Recovern nötig). Der App-Nginx ist ein `:static`-Artefakt; bei `:ssr` proxyt der Proxy direkt auf Nitro → KEIN App-Nginx. **✅ gefixt in 0.7.0 (feat/ssr-1.0)**: `nginx_app_hooks` defaultet bei `:ssr` deploy_mode-aware auf `false` (Zero-Config) + harter Hook-Guard (`nuxt3_deploy_mode == :ssr` überspringt `nginx:app:update` selbst bei force-gesetztem Flag). `:static`/nuxt2-Static/reiner Rails-Proxy (mode unset) unberührt. | **P0** | | S |
 | G18 | **base-require Nuxt2-Hook-Footgun (moja-Testbett Robert 2026-06-12)**: `require "capistrano/recipes4nuxt"` (base) + `/nginx` ziehen die Nuxt2-`nuxt.rake`, deren `after 'deploy:published'`-Hook `nuxt:rebuild_app` (a) mit dem nuxt3-SSR-`deploy:published`-Hook kollidiert und (b) `npm install` OHNE nvm fährt → `exit 127`. **✅ gefixt in 0.7.0 (feat/ssr-1.0)**: der Nuxt2-`deploy:published`-Hook ist deploy_mode-aware — ist `nuxt3_deploy_mode` gesetzt (`:ssr`/`:static`), feuert er NICHT (der nuxt3-Pfad hat seinen eigenen Hook). Reiner Nuxt2-Deploy (mode unset) unverändert. | **P0** | | S |
@@ -371,22 +381,61 @@ Bestehendes (zero-config-safe).
 | G8 | **`node_modules`-Hygiene**: `rm -rf node_modules/*` + shared bei jedem Deploy = teuer; npm-Cache-Strategie prüfen (npm ci ist schon drin) | **P2** | | M |
 | G13 | **Port-Doppelbelegungs-Check** `nuxt3:ssr:check_port` (§4.4): warnt bei `<port>`-Kollision auf geteilter Box statt `EADDRINUSE` im journal; reiner Ergonomie-Guard | **P2** | | S |
 
-### Definition „1.0 = fertig" (verbindlich, Tim/Austin 2026-06-11)
+### Definition „1.0 = fertig" (verbindlich, Tim/Austin 2026-06-11; Gem/FE-Scope-Split: Cargo 2026-06-12)
 
-**1.0 ist erreicht, wenn ALLE folgenden Bedingungen erfüllt sind:**
+> **Ehrliche Scope-Trennung (Cargo 2026-06-12, 0.8.0).** Die ursprüngliche Definition warf
+> Gem-Arbeit und FE-Arbeit in einen Topf („G14+G15 als 1.0-Blocker"). Das ist **als reine
+> Gem-Bedingung unehrlich**: der A2-Purge-**Endpoint** ist FE/Layer-Code (Luke), den das
+> Deploy-Gem **nicht baut und nicht testen kann** (es gibt keinen Endpoint im Gem). Deshalb
+> ist „1.0" hier sauber in **zwei Reifegrade** getrennt — Gem-Deploy-1.0 vs. volle A2-Funktion.
 
-1. **Alle P0-Gaps umgesetzt:** G1, G2, G3, G4, G5, **G16** (Kern-SSR-Deploy inkl. Cross-Host-Bind;
-   Port-Isolation = Operator-Infra/Tailscale, nicht Gem), **G17 + G18** (App-Nginx-:ssr-Kollision-
-   Incident-Fix + base-require-Hook-Footgun, ✅ 0.7.0) **+ G14 + G15** (Content-Refresh A2 inkl. der
-   **Pflicht-Auflage** Nitro-Version-Pin + Purge-Smoke-Test — nicht optional).
-2. **P1-Gaps** (G9, G10, G6, G11, G12) nach Tim-Priorisierung grün; mindestens G9 (Tests) + G10 (Docs).
-3. **P2-Gaps** (G7, G8, G13) dürfen post-1.0.
-4. **Freigabe-Bedingung (Tim/Austin, hart):**
-   **(a) Voll-Parität zu `capistrano-nuxt2`** — alles, was der nuxt2-Recipe konnte (inkl. Deploy-Status-
-   Sichtbarkeit + funktionaler Admin-Trigger), funktioniert im recipes4nuxt-SSR-Pfad gleichwertig.
-   **(b) Ein realer, verifizierter Deploy** auf einem Testbett (moja- und/oder ValidSlots) ist
-   nachweislich grün durchgelaufen (Build → Restart → Health-Check → Admin-Purge verifiziert).
-   **→ Vor Erfüllung von (a) UND (b) erfolgt KEINE WIP-Entsperrung / kein 1.0-Release.**
+#### 1.0-A — **Gem-Deploy-1.0** (das, was recipes4nuxt allein verantwortet)
+
+**Erreicht, wenn:**
+
+1. **Alle Deploy-Kern-P0-Gaps umgesetzt:** G1, G2, G3, G4, G5, **G16** (Kern-SSR-Deploy inkl.
+   Cross-Host-Bind; Port-Isolation = Operator-Infra/Tailscale, nicht Gem), **G17 + G18**
+   (App-Nginx-:ssr-Kollision-Incident-Fix + base-require-Hook-Footgun). — ✅ **alle gebaut**
+   (Etappe 1 + 0.7.0).
+2. **A2-Gem-Auflage erfüllt** — der **Gem-Teil** von G14 + G15: ENV/Port-Kontrakt für den
+   Purge-Endpoint dokumentiert, `purging|admin-interface`-State ehrlich abgegrenzt (BE/Admin-,
+   nicht Deploy-geschrieben), Nitro-Version-Pin-Empfehlung + Purge-Smoke-Test-**Harness/Vorlage**
+   geliefert. — ✅ **gebaut (0.8.0)**. *(Die volle A2-FUNKTION hängt am FE-Endpoint → 1.0-B.)*
+3. **P1-Gaps** G9 (Tests) + G10 (Docs) grün; G6/G11/G12 nach Tim-Priorisierung.
+4. **Gem-Freigabe-Bedingung (hart):** **ein realer, verifizierter SSR-Deploy** auf einem Testbett
+   (moja) — **Build → Restart → Health-Check** nachweislich grün. **Status:** Erst-Deploy lief
+   (2026-06-12, Robert/moja); der **Re-Deploy-Verify** (zweiter Deploy auf bestehende Unit →
+   `restart` statt `configure`, Health-Check grün) steht als **einzige offene Gem-Verifikation** aus.
+
+→ **Empfehlung (Cargo 2026-06-12): Gem-Deploy-1.0 ist nach dem ausstehenden Re-Deploy-Verify
+release-fähig** — mit dem A2-Purge-Endpoint als **dokumentiertem FE-/Layer-Follow-up (1.0.x)**.
+Nichts **Gem-Blockierendes** ist offen; der Deploy-Kern ist vollständig und FE-unabhängig.
+
+#### 1.0-B — **Volle A2-Content-Refresh-Funktion** (FE/Layer + BE, NICHT Gem-Revier)
+
+**Erreicht, wenn** (Revier Luke/Bill, **kein** Gem-Code):
+
+5. **FE/Layer (Luke):** `swr`-routeRules + interner `server/api/_purge`-Endpoint (Auth via
+   `NUXT_PURGE_TOKEN` aus dem ENV-File) + Cache-Status-Signal (Header/Marker für den Smoke-Test).
+6. **BE (Bill):** Admin-Worker von `npm run export` auf `curl …/_purge` umgebaut.
+7. **G15-Verifikation scharf:** der gelieferte Purge-Smoke-Test läuft **gegen den echten
+   FE-Endpoint** grün (Consumer fixiert dabei die getestete Nitro-Version im `package.json`).
+
+→ **Diese Bedingungen erfüllt NICHT das Gem** — es liefert Mechanismus (ENV-File, Port, Flag-Datei)
++ Harness + Doku. 1.0-B ist ein **FE-/Layer-Follow-up**, das parallel/danach laufen kann, ohne den
+Gem-Release zu blockieren.
+
+#### Voll-Parität + Gesamt-Go-Live (Tim/Austin, hart)
+
+8. **(a) Voll-Parität zu `capistrano-nuxt2`:** Deploy-Status-Sichtbarkeit ✅ gem-seitig erfüllt;
+   der **funktionale Admin-Trigger** ist erst mit 1.0-B (FE-Endpoint) voll gegeben.
+   **(b) Ein realer End-to-End-Deploy** grün durch inkl. **Admin-Purge verifiziert** — das berührt
+   1.0-B (FE) und ist damit **kein Gem-Blocker**, sondern die Bedingung für den **Gesamt-Produktiv-
+   Go-Live** des SSR-Stacks (Gem + FE + BE zusammen).
+   **→ Gem-WIP-Entsperrung / Gem-1.0-Release** braucht **1.0-A** (inkl. Re-Deploy-Verify).
+   **Gesamt-Go-Live / „A2 voll funktional"** braucht zusätzlich **1.0-B**.
+
+**P2-Gaps** (G7, G8, G13) dürfen in beiden Reifegraden post-1.0 bleiben.
 
 ---
 
@@ -650,11 +699,15 @@ zwischen Klicks). Beide hielten den Admin-Trigger funktionell (Q2 erfüllt) — 
    gefixt; Smoke `test/deploy_mode_hooks_smoke_test.rb` grün.
 
 **Etappe 2 — Content-Refresh A2 (P0, FE/BE + kleine Gem-Konvention):**
-6. **G14 (A2)** FE: `swr`-routeRules + interner Purge-Endpoint (Luke/Layer); BE: Worker-Innenleben
-   `npm run export` → `curl …/_purge` (Bill); Gem dokumentiert die Purge-Konvention + ENV/Port-
-   Kontrakt für den Endpoint. (Hängt an Etappe 1, weil ENV/Port-Kontrakt dort steht.)
-7. **G15 (A2-Pflicht-Auflage)** Nitro-Version-Pin + Purge-Smoke-Test, der den Cache-Purge real
-   verifiziert. **Direkt mit G14 zusammen** — ohne diesen Test ist A2 nicht 1.0-fähig.
+6. **G14 (A2)** — **✅ GEM-Teil gebaut (0.8.0, feat/ssr-1.0, Cargo):** Purge-Konvention + ENV/Port-
+   Kontrakt für den Endpoint dokumentiert (migration §10), `purging|admin-interface`-Flag-State ehrlich
+   abgegrenzt (BE/Admin-, nicht Deploy-geschrieben). **FE-Teil = Revier Luke/Layer (offen):**
+   `swr`-routeRules + interner Purge-Endpoint (`server/api/_purge`); **BE = Bill:** Worker-Innenleben
+   `npm run export` → `curl …/_purge`.
+7. **G15 (A2-Pflicht-Auflage)** — **✅ GEM-Teil gebaut (0.8.0, Cargo):** Nitro-Version-Pin-Empfehlung +
+   Purge-Smoke-Test-Harness/Vorlage (`docs/purge-smoke-test.sh` + `docs/PURGE_SMOKE_TEST.md`).
+   **Verifikation = Consumer-Revier (offen):** der Consumer fährt den Test gegen SEINEN Endpoint und
+   pinnt die getestete Nitro-Version. Ohne diesen Consumer-Lauf ist die A2-FUNKTION (1.0-B) nicht fertig.
 
 **Etappe 3 — Härtung + Doku (P1):**
 8. **G9** Specs (Dexter) für Task-Verkabelung + ERB-Template-Rendering.

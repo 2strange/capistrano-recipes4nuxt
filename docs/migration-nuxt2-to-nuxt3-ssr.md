@@ -153,7 +153,88 @@ reicht meist. **Alle Folge-Deploys:** `cap <stage> deploy`.
 - `cap <stage> nuxt3:ssr:check_env` → ENV-File nicht leer.
 - Health-Check `nuxt3:ssr:verify` läuft im Deploy-Hook (curl 127.0.0.1:<port> mit Retry).
 
-## 10. Rollback
+## 10. Content-Refresh (A2) — `swr`-routeRules + Nitro-Purge-Endpoint
+
+> **Worum es geht:** Der alte Admin-„Seite neu rendern"-Button (`nuxt generate` →
+> rsync) **bleibt funktionell** — aber das Mittel ändert sich. In recipes4nuxt-SSR
+> sind Content-Routen auf `swr` (stale-while-revalidate): nach TTL **automatisch
+> frisch**, und der Admin-Button purged on-demand die Nitro-Route-Caches → nächster
+> Request rendert sofort frisch. **Kein npm-Build mehr.** (Entscheid A2, Contract §6a.)
+
+### ⚖️ Revier — was das Gem liefert vs. was DU (Consumer/FE) baust
+
+A2 ist **bewusst klein auf der Gem-Seite**. Der Purge-Endpoint ist eine **Nitro-Server-Route
+= App-/Layer-Code, NICHT das Deploy-Gem.** Klare Trennung:
+
+| Baustein | Wer | Im Gem? |
+|---|---|---|
+| `swr`-routeRules in `nuxt.config.ts` | **Luke (FE/Layer)** | ❌ App-Code |
+| `server/api/_purge`-Endpoint (`useStorage('cache').clear('nitro:routeRules')`) + Auth | **Luke (FE/Layer)**, wiederverwendbar im Layer | ❌ App-Code (Nitro-Route) |
+| BE-Worker: `npm run export` → authentifizierter `curl …/_purge` | **Bill (BE)** | ❌ BE-Code |
+| Admin-Button + renderState-Texte | **Luke (FE)** | ❌ FE-Code |
+| **ENV-File-Mechanismus** (Auth-Token landet in `nuxt3_ssr.env`) | **recipes4nuxt** | ✅ schon da (§4 / `ssr:upload_env`) |
+| **Port/Host-Kontrakt** (auf was der BE-`curl` zielt) | **recipes4nuxt** | ✅ schon da (`nuxt3_ssr_host:nuxt3_ssr_port`) |
+| `purging\|admin-interface`-Flag-State (Lesekontrakt der UI) | recipes4nuxt seedet die **Datei** (`linked_file`); **geschrieben** wird sie BE/Admin-seitig | ✅ Datei / ❌ Write |
+
+**→ Das Gem stellt den _Mechanismus_ (ENV-File, Port, Flag-Datei) — den _Endpoint_ baust du.**
+Es gibt **keinen** `nuxt3:*`-Task fürs Purgen; das ist Absicht (der Purge ist ein HTTP-Call
+vom BE, kein Deploy-Schritt).
+
+### Der ENV/Port-Kontrakt, an dem dein Endpoint andockt (Gem-Seite)
+
+Damit BE→Nitro-Purge funktioniert, brauchst du nur drei Dinge — alle vom Gem schon bereitgestellt:
+
+1. **Erreichbarkeit:** Nitro lauscht auf `fetch(:nuxt3_ssr_host):fetch(:nuxt3_ssr_port)`
+   (Default `127.0.0.1:3500`). Liegt der BE-Worker auf **derselben Box**, purgt er gegen
+   `127.0.0.1:<port>`. Liegt er **cross-host** (Proxy-Setup), zielt er auf `<app-lan-ip>:<port>`
+   (= dieselbe Adresse wie der nginx-Upstream; `nuxt3_ssr_host` muss dann `0.0.0.0` sein, §6/§4.5).
+   Der Health-Check-Host (`nuxt3_ssr_healthcheck_host`, Default `127.0.0.1`) ist der lokale Loopback —
+   praktischer Default auch fürs Same-Box-Purgen.
+2. **Auth-Token via ENV-File:** Lege das Purge-Token in `config/nuxt_env/<stage>.env`
+   (z. B. `NUXT_PURGE_TOKEN=…`, gitignored). Es wird vom Gem nach `shared/config/nuxt3_ssr.env`
+   hochgeladen (§4) **und** in den Nitro-Prozess geladen — dein `_purge`-Handler liest es via
+   `runtimeConfig`, der BE-Worker schickt es als Header/Query mit. **Ein** Secret-Pfad, kein neues
+   Gem-Feature nötig.
+3. **Endpoint-Pfad-Konvention:** empfohlen `POST /api/_purge` (geschützt). Der Pfad ist FE-Sache;
+   der BE-`curl` und der Endpoint müssen sich nur einigen.
+
+Skizze (FE/Layer — **nicht** im Gem, gehört in deine App / den Layer):
+
+```ts
+// server/api/_purge.post.ts   (FE/Layer — Luke-Revier)
+export default defineEventHandler(async (event) => {
+  const token = getHeader(event, 'x-purge-token')
+  if (token !== useRuntimeConfig().purgeToken) throw createError({ statusCode: 401 })
+  await useStorage('cache').clear('nitro:routeRules')   // ⚠️ undokumentiert, s. §11/G15
+  return { ok: true }
+})
+```
+```rb
+# BE-Worker (Bill): statt `npm run export` →
+`curl -fsS -X POST -H "x-purge-token: #{ENV['NUXT_PURGE_TOKEN']}" http://127.0.0.1:#{port}/api/_purge`
+```
+
+## 11. Nitro-Version-Pin + Purge-Smoke-Test (A2-Pflicht-Auflage, G15)
+
+> ⚠️ **Pflicht, nicht optional.** `useStorage('cache').clear('nitro:routeRules')` purgt einen
+> routeRules-`swr`-Cache über einen **internen, undokumentierten** Storage-Key-Prefix — es gibt
+> **kein** First-Class-Invalidierungs-API für routeRules ([nuxt#20495](https://github.com/nuxt/nuxt/discussions/20495)).
+> Ein Nitro-Upgrade kann das Key-Schema ändern und den Purge **lautlos ins Leere** laufen lassen.
+
+**Auflage (erfüllt der Consumer):**
+1. **Nitro/Nuxt pinnen** — in der Consumer-`package.json` eine **exakte, getestete** Version
+   festnageln (kein Caret), z. B.:
+   ```json
+   { "dependencies": { "nuxt": "3.13.2" }, "overrides": { "nitropack": "2.9.7" } }
+   ```
+   Gegen diese Version ist der Purge-Pfad verifiziert. **Vor jedem Nuxt/Nitro-Bump den Smoke-Test
+   erneut fahren.** (Getestete Referenz-Matrix: s. `docs/PURGE_SMOKE_TEST.md`.)
+2. **Purge-Smoke-Test gegen DEINEN Endpoint** fahren — Vorlage + Anleitung liegen in
+   `docs/purge-smoke-test.sh` + `docs/PURGE_SMOKE_TEST.md`. Er prüft real: Route cached → Purge →
+   Route invalidiert/frisch. **Das Gem kann diesen Test nicht selbst fahren** (es gibt keinen
+   Endpoint im Gem) — es liefert die **Vorlage**, scharf schaltest du sie mit deinem `_purge`-Endpoint.
+
+## 12. Rollback
 
 Den `:static`/`capistrano-nuxt2`-Stand auf einem **eigenen Branch** (z.B. `staging`)
 unberührt halten. Bei SSR-Problemen den static-Branch redeployen → Seite ist sofort
@@ -163,4 +244,6 @@ zurück.
 *Quelle: moja-Testbett, erster realer recipes4nuxt-SSR-Deploy (2026-06-12, Robert/moja
 + Tim/Cargo). Kanonisch gepflegt in `capistrano-recipes4nuxt/docs/` — Cargo/Tim halten
 sie mit den Gem-Fixes aktuell. §3 + §7 (base-require-Hook-Footgun + App-Nginx-:ssr-
-Kollision) sind ab Gem 0.7.0 deploy_mode-aware automatisch gefixt (Contract §5 G17/G18).*
+Kollision) sind ab Gem 0.7.0 deploy_mode-aware automatisch gefixt (Contract §5 G17/G18).
+§10–§11 (Content-Refresh A2 + Purge-Smoke-Test/Version-Pin) = Gem-Seite 0.8.0; der
+Purge-Endpoint selbst ist FE/Layer-Revier (Luke), kein Gem-Code (Contract §6a/G14/G15).*
