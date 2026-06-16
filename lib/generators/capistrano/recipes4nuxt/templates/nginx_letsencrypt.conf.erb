@@ -1,0 +1,28 @@
+###
+### Minimal Let's Encrypt ACME bootstrap vhost
+### generated with capistrano-recipes4nuxt at: <%= Time.now.strftime("%Y-%m-%d .. %H:%M .. %Z") %>
+###
+### Serves ONLY the ACME http-01 challenge so certbot can issue a certificate
+### BEFORE the app / upstream container exists. Deliberately minimal:
+###   - no upstream, no proxy_pass, no SSL block, no link to the new container
+### `certbot:bootstrap` uploads this, generates the cert, then removes it again.
+### Renewals afterwards run via the deployed config's own `.well-known` block.
+###
+server {
+  listen 80;
+  listen [::]:80;
+
+  server_name <%= nginx_all_domains_with_www.join(joiner) %>;
+
+  # Let's Encrypt http-01 challenge — the only thing this vhost does.
+  location ^~ /.well-known/acme-challenge/ {
+    root <%= fetch(:certbot_webroot) %>;
+    default_type "text/plain";
+    allow all;
+  }
+
+  # Nothing else is served from this bootstrap vhost.
+  location / {
+    return 444;
+  }
+}
