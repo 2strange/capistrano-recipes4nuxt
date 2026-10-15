@@ -59,11 +59,12 @@ module CapStub
   def host = Struct.new(:user, :hostname).new("deploy", "mary-prod")
   def after(event, name = nil, &_blk) = ($hooks << [:after, event, name])
   def before(event, name = nil, &_blk) = ($hooks << [:before, event, name])
+  def ask(key, *_args) = ($settings[key] = "no")
   def invoke(name, *args) = Rake::Task[name].reenable.then { Rake::Task[name].invoke(*args) }
 end
 include CapStub
 
-%w[next timers postgres].each { |r| load File.expand_path("../lib/capistrano/tasks/#{r}.rake", __dir__) }
+%w[next timers postgres certbot].each { |r| load File.expand_path("../lib/capistrano/tasks/#{r}.rake", __dir__) }
 Rake::Task["load:defaults"].invoke
 
 $failures = 0
@@ -215,6 +216,17 @@ $captures["from pg_roles where rolname='app_owner'"] = "1"
 check("existing role without known URL aborts, no reset") do
   begin; invoke "postgres:setup"; false; rescue RuntimeError => e; e.message.include?("rotate_password") && !$upload_log.join.include?("ALTER ROLE"); end
 end
+
+Kernel.puts "certbot:generate (v1.2.2):"
+reset!
+set :nginx_major_domain, "mary.litora-nova.com"
+set :nginx_domains, ["demo-interview.itsolutionsondemand.com"]
+set :certbot_email, "ops@example.com"
+set :certbot_webroot, "/var/www/html"
+invoke "certbot:generate"
+cmd = $executed.find { |c| c.include?("certonly") }.to_s
+check("cert pinned to the major domain via --cert-name") { cmd.include?("--cert-name mary.litora-nova.com") }
+check("both domains requested") { cmd.include?("-d mary.litora-nova.com -d demo-interview.itsolutionsondemand.com") }
 
 Kernel.puts
 if $failures.zero?

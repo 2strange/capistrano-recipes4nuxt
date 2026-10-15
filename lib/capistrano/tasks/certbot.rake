@@ -83,7 +83,13 @@ namespace :certbot do
       expand_option = fetch_certbot_expand_option
       domain_args = fetch_certbot_domain_args
       
-      execute :sudo, "certbot --non-interactive --agree-tos --allow-subset-of-names --email #{certbot_email} certonly --webroot -w #{fetch(:certbot_webroot)} #{domain_args} #{expand_option}"
+      # --cert-name pins the lineage to the path the nginx templates read
+      # (/etc/letsencrypt/live/<cert_domain>/). Without it certbot matches
+      # existing certs by domain: an older cert holding a SUBSET of the domains
+      # (e.g. the old domain before a major-domain move) makes the
+      # non-interactive run abort ("use --expand"), and --expand would grow
+      # that OLD lineage under its old name → nginx points at a missing cert.
+      execute :sudo, "certbot --non-interactive --agree-tos --allow-subset-of-names --email #{certbot_email} certonly --webroot -w #{fetch(:certbot_webroot)} --cert-name #{cert_domain} #{domain_args} #{expand_option}"
     end
   end
 

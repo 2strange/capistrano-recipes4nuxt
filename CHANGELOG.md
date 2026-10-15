@@ -1,5 +1,19 @@
 # Changelog — capistrano-recipes4nuxt
 
+## 1.2.2 — 2026-10-15
+
+**Fix: certbot legt das Zertifikat immer unter dem Namen an, den nginx erwartet.**
+Gefunden von Austin beim mary-Umzug (neue Major-Domain, die alte hat schon ein eigenes Cert).
+
+- **fix (certbot:generate):** neu `--cert-name <cert_domain>` (= `nginx_major_domain` bzw. erste
+  Domain — genau der Pfad `/etc/letsencrypt/live/<…>/`, den die nginx-Templates lesen). Bisher
+  suchte certbot vorhandene Zertifikate über die Domains: Ein altes Cert mit einer **Teilmenge**
+  der Domains ließ den non-interactive Lauf abbrechen („use --expand"); mit `--expand` wäre das
+  **alte** Cert unter altem Namen erweitert worden, nginx hätte auf ein fehlendes Cert gezeigt.
+  Das alte Cert muss **nicht** vorher gelöscht werden (würde die noch aktive alte Config brechen) —
+  es kann nach dem Umzug in Ruhe weg (`sudo certbot delete --cert-name <alte-domain>`).
+  Für bestehende Apps gleiches Ergebnis wie bisher (der Name war schon die erste Domain).
+
 ## 1.2.1 — 2026-10-15
 
 **Fix: `cap <stage> setup` bringt einen frischen Server jetzt wirklich bis zum ersten Deploy.**
