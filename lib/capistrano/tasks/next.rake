@@ -34,6 +34,8 @@ namespace :load do
     set :next_use_nvm,            -> { false }
     set :next_nvm_version,        -> { "24" }
     set :next_nvm_script,         -> { "$HOME/.nvm/nvm.sh" }
+    # nvm itself is installed by `cap <stage> setup` when missing (pinned release).
+    set :next_nvm_installer_version, -> { "v0.40.3" }
 
     # nil = auto: `ci` when package-lock.json exists, else `install`.
     set :next_npm_install_cmd,    -> { nil }
@@ -197,12 +199,29 @@ namespace :next do
     end
   end
 
-  desc "Install the requested node version with nvm"
-  task :install_nvm_node do
+  desc "Check the server has what the recipe needs (git, curl, rsync, flock)"
+  task :preflight do
     on roles(fetch(:next_roles)) do
-      if fetch(:next_use_nvm, false)
-        execute %(bash -lc 'source #{fetch(:next_nvm_script)} && nvm install #{fetch(:next_nvm_version)}')
+      missing = %w[git curl rsync flock].reject { |bin| test("command -v #{bin} >/dev/null 2>&1") }
+      unless missing.empty?
+        pkgs = missing.map { |b| b == "flock" ? "util-linux" : b }.uniq.join(" ")
+        raise "❌ missing on #{host.hostname}: #{missing.join(', ')} — install with: sudo apt-get install -y #{pkgs}"
       end
+      puts "✅ preflight ok (git, curl, rsync, flock)"
+    end
+  end
+
+  desc "Install nvm (if missing) and the requested node version"
+  task :install_nvm_node do
+    next unless fetch(:next_use_nvm, false)
+    on roles(fetch(:next_roles)) do
+      script = fetch(:next_nvm_script)
+      unless test("[ -s #{script} ]")
+        info "📦 installing nvm #{fetch(:next_nvm_installer_version)}"
+        # PROFILE=/dev/null: don't touch ~/.bashrc — every task sources nvm.sh explicitly.
+        execute %(bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/#{fetch(:next_nvm_installer_version)}/install.sh | PROFILE=/dev/null bash')
+      end
+      execute %(bash -lc 'source #{script} && nvm install #{fetch(:next_nvm_version)}')
     end
   end
 
@@ -308,6 +327,8 @@ end
 
 desc 'Server setup tasks'
 task :setup do
+  invoke 'next:preflight'
+  invoke 'next:install_nvm_node'
   invoke 'next:setup_app'
   invoke 'next:upload_env'
 end

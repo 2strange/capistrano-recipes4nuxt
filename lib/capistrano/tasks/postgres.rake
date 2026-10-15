@@ -117,6 +117,9 @@ namespace :postgres do
   desc "Create roles, database, extensions; write URLs to shared/config/database.env (idempotent)"
   task :setup do
     on roles(fetch(:postgres_roles)) do
+      unless test("command -v psql >/dev/null 2>&1")
+        raise "❌ PostgreSQL is not installed on #{host.hostname} — installing it is server setup (operator), the recipe only creates roles + database."
+      end
       db = pg_ident!(fetch(:postgres_database))
       roles = pg_roles_normalized
       env = pg_read_env

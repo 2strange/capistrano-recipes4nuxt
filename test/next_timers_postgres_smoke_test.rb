@@ -132,6 +132,29 @@ invoke "next:setup_app"
 check("next.env chmod 600") { $executed.include?("chmod 600 /srv/mary/shared/config/next.env") }
 check("secrets dir chmod 700") { $executed.include?("chmod 700 /srv/mary/shared/config/secrets") }
 
+Kernel.puts "next:install_nvm_node / preflight:"
+reset!
+invoke "next:install_nvm_node"
+check("installs nvm when missing, without touching ~/.bashrc") { $executed.any? { |c| c.include?("nvm-sh/nvm/v0.40.3/install.sh") && c.include?("PROFILE=/dev/null") } }
+check("installs node 24.16.0") { $executed.any? { |c| c.include?("nvm install 24.16.0") } }
+reset!
+$test_results["[ -s $HOME/.nvm/nvm.sh ]"] = true
+invoke "next:install_nvm_node"
+check("skips nvm download when present") { $executed.none? { |c| c.include?("install.sh") } }
+$test_results.delete("[ -s $HOME/.nvm/nvm.sh ]")
+check("preflight fails with apt hint when tools are missing") do
+  begin; invoke "next:preflight"; false; rescue RuntimeError => e; e.message.include?("apt-get install -y git curl rsync util-linux"); end
+end
+$test_results["command -v"] = true
+check("preflight passes when tools exist") { invoke "next:preflight"; true }
+$test_results.delete("command -v")
+check("setup runs preflight + nvm before setup_app") do
+  pre = Rake::Task["setup"].prerequisites
+  src = File.read(File.expand_path("../lib/capistrano/tasks/next.rake", __dir__))
+  src.index("invoke 'next:preflight'") < src.index("invoke 'next:install_nvm_node'") &&
+    src.index("invoke 'next:install_nvm_node'") < src.index("invoke 'next:setup_app'")
+end
+
 Kernel.puts "next unit:"
 reset!
 invoke "next:configure"
@@ -166,6 +189,11 @@ end
 set :systemd_timers, []
 
 Kernel.puts "postgres:setup (fresh cluster):"
+reset!
+check("aborts when psql is missing") do
+  begin; invoke "postgres:setup"; false; rescue RuntimeError => e; e.message.include?("not installed"); end
+end
+$test_results["command -v psql"] = true
 reset!
 invoke "postgres:setup"
 sql = $upload_log.join

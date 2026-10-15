@@ -1,5 +1,20 @@
 # Changelog — capistrano-recipes4nuxt
 
+## 1.2.1 — 2026-10-15
+
+**Fix: `cap <stage> setup` bringt einen frischen Server jetzt wirklich bis zum ersten Deploy.**
+Gefunden beim Aufsetzen des ersten Konsumenten (mary-LXC, Debian 12).
+
+- **fix (next):** `setup` installiert **nvm selbst**, wenn es fehlt (gepinnt
+  `:next_nvm_installer_version` = v0.40.3, `PROFILE=/dev/null` → `~/.bashrc` bleibt
+  unangetastet), danach die Node-Version. Bisher installierte v1.2.0 nur die Node-Version
+  und lief auf einem frischen Server ins Leere — `next:install_nvm_node` wurde im Setup
+  auch gar nicht aufgerufen.
+- **feat (next):** `next:preflight` (läuft zuerst im Setup) prüft git, curl, rsync, flock
+  und bricht mit dem passenden `apt-get install`-Hinweis ab, statt mitten im Deploy zu scheitern.
+- **fix (postgres):** `postgres:setup` bricht mit klarer Meldung ab, wenn PostgreSQL nicht
+  installiert ist (Installation bleibt Server-Setup).
+
 ## 1.2.0 — 2026-10-15
 
 **Neu: Next.js-Rezept + generische systemd-Timer + PostgreSQL-Rollen/DB.** Rein additiv —
