@@ -165,7 +165,8 @@ check("ensure_shared_config_path helper defined") { respond_to?(:ensure_shared_c
 check("nuxt3_build_env_source guards a missing file ([ -f ... ])") do
   $settings[:nuxt3_ssr_env_file] = "nuxt3_ssr.env"
   src = nuxt3_build_env_source
-  src.include?("set -a") && src.include?("[ -f ") && src.include?("set +a")
+  # v1.2.3: systemd-like loader instead of `set -a; . file` (see env_loader_smoke_test.rb)
+  src.include?("if [ -f ") && src.include?("nuxt3_ssr.env") && src.end_with?("true; }")
 end
 
 puts

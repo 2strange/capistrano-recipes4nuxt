@@ -1,5 +1,21 @@
 # Changelog — capistrano-recipes4nuxt
 
+## 1.2.3 — 2026-10-15
+
+**Deploys reißen den geteilten Proxy nicht mehr kurz runter.** Keine neue Config nötig.
+
+- **fix (nginx, Shared-Proxy):** `nginx:proxy:update` und `nginx:app:update` (laufen bei jedem
+  Deploy) haben nginx **neu gestartet** → auf einem geteilten Proxy kurz alle anderen Seiten weg.
+  Jetzt `nginx -t` (kaputte Config bricht den Deploy ab, laufendes nginx behält die alte) und dann
+  `systemctl reload-or-restart nginx` (reload; Start nur, falls nginx gar nicht läuft).
+  Manueller Restart bleibt: `cap <stage> nginx:proxy:service:restart`. (Fund: Mary-Bob)
+- **fix (ENV beim Build):** `next.env` / `nuxt3_ssr.env` werden beim Build (und bei
+  `next:pre_publish`) jetzt **wie von systemd** eingelesen statt per `. file` als Shell-Code
+  ausgeführt. Unquotierte Werte wie `MAIL_FROM=Mary <mary@example.com>` brachen das Sourcen ab,
+  obwohl der Service sie problemlos las. Unterstützt Kommentare, `export `-Präfix, CRLF und ein
+  Paar umschließender `"…"`/`'…'`-Quotes; `$VAR` im Wert wird **nicht** expandiert (bleibt wörtlich).
+  Build und Laufzeit sehen damit dieselben Werte. (Fund: Mary-Bob)
+
 ## 1.2.2 — 2026-10-15
 
 **Fix: certbot legt das Zertifikat immer unter dem Namen an, den nginx erwartet.**

@@ -22,9 +22,9 @@ module Capistrano
         files.uniq
       end
 
-      # `set -a` exports every KEY=value; missing files are skipped (zero-config-safe).
+      # Reads the files like systemd (no shell evaluation); missing files are skipped.
       def next_env_source
-        next_all_env_files.map { |f| "[ -f #{f} ] && . #{f}" }.join("; ").then { |s| "set -a; #{s}; set +a" }
+        env_files_load_sh(next_all_env_files)
       end
 
       def next_nvm_prefix

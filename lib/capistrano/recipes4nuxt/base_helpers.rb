@@ -99,8 +99,26 @@ module Capistrano
       # exports every KEY=value; the leading `[ -f … ]` guard keeps it
       # zero-config-safe when no ENV file has been uploaded yet.
       def nuxt3_build_env_source
-        f = nuxt3_remote_env_file
-        "set -a; [ -f #{f} ] && . #{f}; set +a"
+        env_files_load_sh([nuxt3_remote_env_file])
+      end
+
+      # Load KEY=value files into the shell the way systemd's EnvironmentFile=
+      # reads them — WITHOUT evaluating them as shell code. `. file` broke on
+      # unquoted values like `MAIL_FROM=Mary <mary@example.com>` (systemd reads
+      # those fine), so build/runtime ENV drifted. Handles: comments/blank lines,
+      # `export ` prefix, CRLF, one pair of surrounding "…" or '…' quotes.
+      # Missing files are skipped. The snippet contains no single quote, so it
+      # can live inside `bash -lc '…'`; wrapped in { …; true; } so it never
+      # breaks an `&&` chain.
+      def env_files_load_sh(files)
+        loader = '__r4n_env() { q=$(printf "\\047"); cr=$(printf "\\r"); ' \
+                 'while IFS= read -r l || [ -n "$l" ]; do l="${l%"$cr"}"; l="${l#export }"; ' \
+                 'case "$l" in ""|"#"*) continue;; esac; k="${l%%=*}"; v="${l#*=}"; ' \
+                 'case "$k" in ""|*[!A-Za-z0-9_]*) continue;; esac; ' \
+                 'case "$v" in \"*\") v="${v#\"}"; v="${v%\"}";; "$q"*"$q") v="${v#"$q"}"; v="${v%"$q"}";; esac; ' \
+                 'export "$k=$v"; done < "$1"; }'
+        list = Array(files).map { |f| %("#{f}") }.join(" ")
+        "{ #{loader}; for __f in #{list}; do if [ -f \"$__f\" ]; then __r4n_env \"$__f\"; fi; done; true; }"
       end
 
       # NUXT_APP_ENV=<stage> as a leading `env` assignment for non-nvm fallbacks

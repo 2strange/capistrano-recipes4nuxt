@@ -230,7 +230,14 @@ namespace :nginx do
         else
           invoke "nginx:proxy:site:enable" # This will also reload
         end
-        invoke "nginx:proxy:service:restart" # Or :restart if significant changes
+        # Shared proxy/host: `nginx -t` first (a broken config aborts the deploy and the
+        # running nginx keeps its old config), then RELOAD — a restart would drop every
+        # other site on this nginx for a moment on each deploy. Restart stays available
+        # manually: cap <stage> nginx:proxy:service:restart
+        invoke! "nginx:proxy:service:check_config"
+        # reload-or-restart: reloads a running nginx, starts it only if it is down.
+        puts "🔄 [PROXY] Reloading nginx (reload-or-restart)..."
+        execute :sudo, "systemctl reload-or-restart nginx"
         puts "✅ [PROXY] Nginx reconfiguration complete!"
       end
     end
@@ -359,7 +366,14 @@ namespace :nginx do
         else
           invoke "nginx:app:site:enable"
         end
-        invoke "nginx:app:service:restart" # Or :restart
+        # Shared proxy/host: `nginx -t` first (a broken config aborts the deploy and the
+        # running nginx keeps its old config), then RELOAD — a restart would drop every
+        # other site on this nginx for a moment on each deploy. Restart stays available
+        # manually: cap <stage> nginx:app:service:restart
+        invoke! "nginx:app:service:check_config"
+        # reload-or-restart: reloads a running nginx, starts it only if it is down.
+        puts "🔄 [APP] Reloading nginx (reload-or-restart)..."
+        execute :sudo, "systemctl reload-or-restart nginx"
         puts "✅ [APP] Nginx reconfiguration complete!"
       end
     end
