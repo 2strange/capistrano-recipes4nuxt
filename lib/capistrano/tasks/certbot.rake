@@ -57,7 +57,7 @@ namespace :certbot do
     certbot_domains.map do |d|
       base_domain = d.gsub(/^\*?\./, "")
       domain_entry = "-d #{base_domain}"
-      domain_entry += "-d www.#{base_domain}" if use_www_domains
+      domain_entry += " -d www.#{base_domain}" if use_www_domains
       domain_entry
     end.join(" ")
   end
