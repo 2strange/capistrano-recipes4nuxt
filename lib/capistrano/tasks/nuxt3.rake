@@ -364,12 +364,17 @@ namespace :nuxt3 do
           # Touch the target anyway so the linked_file symlink + deploy:check
           # never dangle on a first deploy with no local ENV file.
           execute :touch, remote
+          execute :chmod, "600", remote
           warn "⚠️  No local ENV file at #{local} — touched empty #{remote} (service uses unit ENV only)."
           next
         end
         puts "📤 Syncing SSR ENV: #{local} → #{remote}"
         remote_target = "#{host.user}@#{host.hostname}:#{remote}"
-        run_locally { execute "rsync -av #{local} #{remote_target}" }
+        # The file holds secrets → owner-only. --chmod sets 0600 on arrival (no
+        # world-readable window); the chmod afterwards also tightens files that
+        # older gem versions uploaded with the local mode (often 0644).
+        run_locally { execute "rsync -av --chmod=F600 #{local} #{remote_target}" }
+        execute :chmod, "600", remote
       end
     end
 

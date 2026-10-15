@@ -1,5 +1,16 @@
 # Changelog — capistrano-recipes4nuxt
 
+## 1.1.2 — 2026-10-15
+
+**Security: die hochgeladene Runtime-ENV-Datei ist jetzt nur noch für den deploy-User lesbar.**
+
+- **fix (`nuxt3:ssr:upload_env`):** `shared/config/nuxt3_ssr.env` enthält Secrets, wurde
+  aber per `rsync -av` mit dem **lokalen** Dateimodus hochgeladen (meist `0644` → für
+  alle User auf dem Server lesbar). Jetzt `rsync --chmod=F600` + `chmod 600` danach —
+  auch eine schon vorhandene, zu offene Datei wird beim nächsten Deploy/Upload
+  korrigiert. Der Nitro-Service läuft als deploy-User und liest sie unverändert.
+  Keine neue Config nötig.
+
 ## 1.1.1 — 2026-10-15
 
 **Fix: `certbot_www_domains` erzeugte kaputte certbot-Argumente.**
