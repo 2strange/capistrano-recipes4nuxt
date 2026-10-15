@@ -134,6 +134,14 @@ check("upstream still points at the app server") do
   conf.include?("server 10.99.7.17:3500;")
 end
 
+puts "Case 5: X-Forwarded-For (v1.2.0)"
+check("default appends the client chain (unchanged)") do
+  render_conf.include?("proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;")
+end
+check("$remote_addr overwrites it (anti-spoof for IP rate limits)") do
+  render_conf(nginx_proxy_forwarded_for: "$remote_addr").include?("proxy_set_header X-Forwarded-For $remote_addr;")
+end
+
 puts
 if $failures.zero?
   puts "ALL PROXY-CONF RENDER SMOKE CHECKS PASSED"

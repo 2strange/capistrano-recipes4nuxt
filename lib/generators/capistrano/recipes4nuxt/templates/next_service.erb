@@ -1,0 +1,36 @@
+[Unit]
+Description=Next.js server for <%= fetch(:application) %>_<%= fetch(:stage) %>
+After=network.target
+
+[Service]
+Type=simple
+User=<%= fetch(:next_user) %>
+Group=<%= fetch(:next_user) %>
+
+# `next start` runs from the live release; a deploy re-points `current` and restarts.
+WorkingDirectory=<%= current_path %>
+
+# This unit file is world-readable — only NON-secret values belong here.
+# Secrets go into shared/config/next.env (0600) or the secrets dir.
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+Environment=HOSTNAME=<%= fetch(:next_host) %>
+Environment=PORT=<%= fetch(:next_port) %>
+<%= fetch(:next_env, {}).map { |k, v| "Environment=#{k}=#{v}" }.join("\n") %>
+
+# Runtime ENV, loaded after the lines above (file values win). '-' = optional.
+<% next_all_env_files.each do |f| %>EnvironmentFile=-<%= f %>
+<% end %>
+ExecStart=/bin/bash -lc '<%= next_nvm_prefix %> && exec ./node_modules/.bin/next start -H <%= fetch(:next_host) %> -p <%= fetch(:next_port) %> <%= fetch(:next_start_args) %>'
+
+Restart=always
+RestartSec=5
+StartLimitBurst=3
+StartLimitInterval=30
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=next_<%= fetch(:application) %>_<%= fetch(:stage) %>
+
+[Install]
+WantedBy=multi-user.target

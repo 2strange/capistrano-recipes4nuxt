@@ -49,6 +49,10 @@ namespace :load do
     # timeout, 502/503) — a GET that never reached app code, so re-trying it
     # cannot double-execute a side effect. Harmless for the :static/Rails proxy
     # path too (same idempotent conditions). Override per stage if needed.
+    # X-Forwarded-For sent upstream. Default appends the client chain (unchanged).
+    # "$remote_addr" OVERWRITES it — use that when the app rate-limits by
+    # X-Forwarded-For, otherwise a client can spoof its IP via the header.
+    set :nginx_proxy_forwarded_for,         -> { "$proxy_add_x_forwarded_for" }
     set :nginx_proxy_next_upstream,         -> { "error timeout http_502 http_503" }
     set :nginx_proxy_next_upstream_tries,   -> { 2 }   # 1 retry past the first try
     set :nginx_proxy_next_upstream_timeout, -> { "5s" } # cap total time across tries
@@ -92,7 +96,8 @@ namespace :load do
     # ohne dass der Consumer ein Flag setzen muss (Zero-Config). `:static`,
     # nuxt2-Static UND der reine Rails/recipes2go-Proxy-Fall (`nuxt3_deploy_mode`
     # ungesetzt) bleiben unberührt → Default `true`. Override jederzeit explizit.
-    set :nginx_app_hooks,         -> { fetch(:nuxt3_deploy_mode, nil) == :ssr ? false : true }
+    # Same for the Next recipe (`:next_app`): `next start` IS the server, no App-Nginx.
+    set :nginx_app_hooks,         -> { (fetch(:nuxt3_deploy_mode, nil) == :ssr || fetch(:next_app, false)) ? false : true }
     set :allow_well_known_app,    -> { false } # Usually handled by proxy
   end
 end
@@ -437,12 +442,13 @@ namespace :deploy do
     # `nuxt3_ssr_port`) must NEVER be (re)created in :ssr mode (it would collide
     # with Nitro and invalidate host-wide nginx -t). The deploy_mode check here is
     # authoritative; the deploy_mode-aware default above is the Zero-Config layer.
-    ssr_mode = fetch(:nuxt3_deploy_mode, nil) == :ssr
+    ssr_mode = fetch(:nuxt3_deploy_mode, nil) == :ssr || fetch(:next_app, false)
     if !ssr_mode && fetch(:nginx_app_hooks) && roles(fetch(:nginx_app_roles)).any?
       puts "훅: nginx:app:update wird aufgerufen"
       invoke "nginx:app:update"
     elsif ssr_mode
-      puts "ℹ️ [APP] :ssr-Mode → App-Nginx-Hook übersprungen (Proxy proxyt direkt auf Nitro:#{fetch(:nuxt3_ssr_port)}, kein App-Nginx). [G17]"
+      port = fetch(:next_app, false) ? fetch(:next_port) : fetch(:nuxt3_ssr_port)
+      puts "ℹ️ [APP] Node-Service-Mode → App-Nginx-Hook übersprungen (Proxy proxyt direkt auf :#{port}, kein App-Nginx). [G17]"
     end
   end
 end

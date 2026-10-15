@@ -1,0 +1,14 @@
+[Unit]
+Description=<%= @timer[:name] %> job for <%= fetch(:application) %>_<%= fetch(:stage) %>
+
+[Service]
+Type=oneshot
+User=<%= fetch(:timers_user) %>
+Group=<%= fetch(:timers_user) %>
+WorkingDirectory=<%= fetch(:timers_workdir) %>
+Environment=NODE_ENV=production
+<%= @timer[:env].map { |k, v| "Environment=#{k}=#{v}" }.join("\n") %>
+<% Array(fetch(:timers_env_files)).each do |f| %>EnvironmentFile=-<%= f %>
+<% end %>
+ExecStart=<%= @timer_exec %>
+SyslogIdentifier=<%= @timer[:unit] %>

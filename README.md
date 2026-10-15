@@ -245,6 +245,91 @@ restart the service cleanly.
 
 ---
 
+## Next.js
+
+`require "capistrano/recipes4nuxt/next"` deploys a Next.js app that runs with
+`next start` (no `output: "standalone"` needed). Own `next_*` settings; the Nuxt
+recipes are untouched. **Don't** combine it with `capistrano/recipes4nuxt`
+(Nuxt 2) or `.../nuxt3` in the same Capfile — the deploy refuses that.
+
+Per deploy (atomic — a red build or failed migration never goes live):
+
+1. `deploy:starting` — upload `config/next_env/<stage>.env` → `shared/config/next.env` (0600)
+2. `deploy:updated` — `npm ci` **per release**, `next build` (ENV sourced, so
+   `NEXT_PUBLIC_*` is baked in), then `:next_pre_publish_cmds` (e.g. migrations)
+3. `deploy:published` — restart the systemd unit (first deploy: create + enable), curl health-check
+
+```ruby
+# Capfile
+require "capistrano/recipes4nuxt/next"
+require "capistrano/recipes4nuxt/proxy_nginx"
+require "capistrano/recipes4nuxt/certbot"
+require "capistrano/recipes4nuxt/timers"     # optional
+require "capistrano/recipes4nuxt/postgres"   # optional
+```
+
+```ruby
+# config/deploy/production.rb
+server "SERVER", user: "deploy", roles: %w{app db}
+server "PROXY",  user: "deploy", roles: %w{proxy}, no_release: true
+
+set :next_use_nvm,          true
+set :next_nvm_version,      "24.16.0"
+set :next_port,             3500
+set :next_secrets_dir,      "config/secrets"   # created 0700, you fill it (one file per key)
+set :next_pre_publish_cmds, ["npx tsx scripts/migrate.ts"]
+
+set :nginx_upstream_host,   "SERVER"
+set :nginx_upstream_port,   fetch(:next_port)
+set :nginx_proxy_forwarded_for, "$remote_addr" # if the app rate-limits by X-Forwarded-For
+```
+
+Secrets go into `next.env` or the secrets dir — never into `:next_env` (the unit
+file is world-readable). `cap <stage> next:check_env` warns about `NEXT_PUBLIC_*`
+names that look like secrets. Tasks: `next:{setup_app,upload_env,check_env,build,
+configure,restart,verify,start,stop,status,logs}`.
+
+### Timers (`capistrano/recipes4nuxt/timers`)
+
+Recurring jobs as systemd timers (cron replacement), framework-agnostic:
+
+```ruby
+set :systemd_timers, [
+  { name: "purge", command: "npx tsx scripts/purge-expired.ts",
+    on_calendar: "hourly", env: { "PURGE_ELEVENLABS" => "1" } },
+]
+```
+
+Runs in `current/` with the app's ENV files, `flock` by default (no overlap).
+Set up on every deploy; timers removed from the list are removed on the server.
+`cap <stage> timers:{list,run[name],logs[name]}`. Lives here for now — port to
+recipes2go when a Rails app needs it.
+
+### PostgreSQL (`capistrano/recipes4nuxt/postgres`)
+
+Creates login roles + the database on a local PostgreSQL (installing PostgreSQL
+is server setup) and writes the connection URLs to `shared/config/database.env`
+(0600, loaded by the app, build, migrations and timers). Passwords are generated
+server-side-only and never appear on a command line. Grants/RLS stay in your
+migrations.
+
+```ruby
+set :postgres_database,   "mary_production"   # default: <application>_<stage>
+set :postgres_extensions, ["pgcrypto"]
+set :postgres_db_roles, [
+  { name: "app_owner",   attributes: "BYPASSRLS",   env: "DATABASE_OWNER_URL", owner: true },
+  { name: "app_user",    attributes: "NOBYPASSRLS", env: "DATABASE_URL" },
+  { name: "app_service", attributes: "BYPASSRLS",   env: "DATABASE_SERVICE_URL" },
+]
+```
+
+`cap <stage> setup` runs `postgres:setup` (idempotent). An existing role whose URL
+isn't in `database.env` aborts the setup (it may belong to another app) — take it
+over explicitly with `postgres:rotate_password[role]`. `postgres:status` shows the
+state without secrets.
+
+---
+
 ## CHANGELOG
 
 ### 0.8.0 — Stage 2: A2 content refresh (gem side) — G14 + G15

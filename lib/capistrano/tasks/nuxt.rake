@@ -156,7 +156,7 @@ namespace :deploy do
   # Nuxt2 hook must NOT fire. A PURE Nuxt2 deploy (no nuxt3_deploy_mode set,
   # default nil) is unchanged → the hook still rebuilds the nuxt2 app 1:1.
   after 'deploy:published', :rebuild_nuxt_app do
-    if fetch(:nuxt3_deploy_mode, nil).nil?
+    if fetch(:nuxt3_deploy_mode, nil).nil? && !fetch(:next_app, false)
       invoke "nuxt:rebuild_app"
     else
       puts "ℹ️ [NUXT2] nuxt3_deploy_mode=#{fetch(:nuxt3_deploy_mode)} gesetzt → Nuxt2-rebuild-Hook übersprungen (der nuxt3-Pfad hat seinen eigenen deploy:published-Hook). [G18]"

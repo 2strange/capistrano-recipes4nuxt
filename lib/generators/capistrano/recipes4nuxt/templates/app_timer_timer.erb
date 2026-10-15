@@ -1,0 +1,10 @@
+[Unit]
+Description=<%= @timer[:name] %> timer for <%= fetch(:application) %>_<%= fetch(:stage) %>
+
+[Timer]
+OnCalendar=<%= @timer[:on_calendar] %>
+Persistent=true
+Unit=<%= @timer[:unit] %>.service
+
+[Install]
+WantedBy=timers.target
